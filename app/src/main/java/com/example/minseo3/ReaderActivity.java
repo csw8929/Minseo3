@@ -16,6 +16,9 @@ import android.widget.Toast;
 
 import androidx.activity.OnBackPressedCallback;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsCompat;
+import androidx.core.view.WindowInsetsControllerCompat;
 
 import java.io.File;
 import java.util.concurrent.ExecutorService;
@@ -68,6 +71,7 @@ public class ReaderActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        enterFullscreen();
         setContentView(R.layout.activity_reader);
 
         pageView      = findViewById(R.id.page_view);
@@ -116,12 +120,24 @@ public class ReaderActivity extends AppCompatActivity {
         loadFile(file, startOffset);
     }
 
+    private void enterFullscreen() {
+        WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
+        WindowInsetsControllerCompat controller =
+                new WindowInsetsControllerCompat(getWindow(), getWindow().getDecorView());
+        controller.hide(WindowInsetsCompat.Type.statusBars() | WindowInsetsCompat.Type.navigationBars());
+        controller.setSystemBarsBehavior(
+                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+    }
+
     // ── Top menu (리스트 / 설정 / NAS) ────────────────────────────────────────
 
     private void setupTopMenu() {
         findViewById(R.id.menu_list).setOnClickListener(v -> {
-            // Back to BookListActivity. It's already in the task stack as parent.
-            finish();
+            // Bring the existing BookList forward, keeping Reader in the stack
+            // so that pressing back on BookList returns to this novel.
+            Intent intent = new Intent(this, BookListActivity.class);
+            intent.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+            startActivity(intent);
         });
         findViewById(R.id.menu_settings).setOnClickListener(v -> showSettings());
         findViewById(R.id.menu_nas).setOnClickListener(v ->
@@ -199,9 +215,17 @@ public class ReaderActivity extends AppCompatActivity {
         saveHandler.postDelayed(saveRunnable, 5000);
     }
 
+    /**
+     * Save synchronously on the calling thread. Used in onPause so that
+     * BookListActivity.onResume() reads the just-updated progress instead of
+     * racing with the executor's background save.
+     */
     private void flushSaveNow() {
         saveHandler.removeCallbacks(saveRunnable);
-        saveRunnable.run();
+        if (text.isEmpty() || pageRenderer.getPageCount() == 0) return;
+        int offset = pageRenderer.getPageStartOffset(currentPage);
+        progressRepo.save(fileHash, filePath, offset, text.length());
+        nasSyncManager.push(fileHash, filePath, offset, text.length());
     }
 
     // ── Touch ────────────────────────────────────────────────────────────────

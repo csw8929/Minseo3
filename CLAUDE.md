@@ -55,6 +55,32 @@ All versions are managed via `gradle/libs.versions.toml` (version catalog):
 - Build scripts use **Kotlin DSL** (`.gradle.kts`).
 - `compileSdk` uses the `release()` DSL block (AGP 9.x feature) targeting API 36 with `minorApiLevel = 1`.
 
+## Device Screenshot Capture
+
+Capturing a screenshot from the connected Android device on **Windows + Git Bash** must use the save-to-device-then-pull pattern. Do NOT pipe `screencap` stdout to a local file.
+
+Chain with `;`, not `&&` — `screencap` exits 1 even on success (see below), which would block the remaining steps under `&&`.
+
+```bash
+adb shell screencap -p /sdcard/screen.png; \
+MSYS_NO_PATHCONV=1 adb pull /sdcard/screen.png 'D:\workspace\Minseo3\screen.png'; \
+MSYS_NO_PATHCONV=1 adb shell rm /sdcard/screen.png
+```
+
+Why each step matters:
+1. **Save on device, then pull** — this device has two displays, so `adb shell screencap -p` on stdout interleaves a usage warning (text) with PNG bytes, corrupting the image. The warning also makes `screencap` exit with code 1 even though the on-device PNG is fine. Not a CRLF issue. Use `;` (not `&&`) so the non-zero exit does not abort the pull/rm.
+2. **`MSYS_NO_PATHCONV=1` on BOTH `adb pull` and `adb shell rm`** — Git Bash rewrites POSIX-looking paths like `/sdcard/...` into Windows paths (`C:/Program Files/Git/sdcard/...`) before `adb` sees them. Required on any `adb` invocation whose argument is a device-side path, not just `pull`.
+3. **Local destination as Windows path** — use `D:\...` style for the pull target (single-quoted to preserve backslashes).
+
+### Multi-display note
+
+This device exposes two displays (seen via `adb shell dumpsys SurfaceFlinger --display-id`):
+
+- HWC 0 (`4630946474867211650`) — off / black screen
+- HWC 3 (`4630946213010294403`) — **default; where the app runs**
+
+`screencap` without `-d` captures the default (HWC 3), which is the right one here. If you ever need the other display, pass `-d <id>` BEFORE `-p` (e.g., `screencap -d <id> -p /sdcard/out.png`); reversed order (`-p -d <id>`) is rejected by this device's screencap and only prints usage. Avoid `-a`: on this device it writes files without a `.png` suffix, which makes `screencap` save raw framebuffer bytes instead of a PNG.
+
 ## Skill routing
 
 When the user's request matches an available skill, ALWAYS invoke it using the Skill
