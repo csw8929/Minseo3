@@ -10,7 +10,12 @@ import android.content.SharedPreferences;
 public class NasSyncManager {
 
     private static final String PREFS = "nas_prefs";
-    private static final String KEY_ENABLED = "nas_enabled";
+    private static final String KEY_ENABLED  = "nas_enabled";
+    private static final String KEY_HOST     = "nas_host";
+    private static final String KEY_PORT     = "nas_port";
+    private static final String KEY_USER     = "nas_user";
+    private static final String KEY_PASS     = "nas_pass";
+    private static final String KEY_PATH     = "nas_path";
 
     private final SharedPreferences prefs;
     private boolean connected = false;
@@ -19,23 +24,34 @@ public class NasSyncManager {
         prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
     }
 
-    public boolean isEnabled() {
-        return prefs.getBoolean(KEY_ENABLED, false);
+    // ── Settings ─────────────────────────────────────────────────────────────
+
+    public boolean isEnabled()      { return prefs.getBoolean(KEY_ENABLED, false); }
+    public String  getHost()        { return prefs.getString(KEY_HOST, ""); }
+    public int     getPort()        { return prefs.getInt(KEY_PORT, 5000); }
+    public String  getUser()        { return prefs.getString(KEY_USER, ""); }
+    public String  getPass()        { return prefs.getString(KEY_PASS, ""); }
+    public String  getPath()        { return prefs.getString(KEY_PATH, "/소설/.minseo/"); }
+
+    public void save(boolean enabled, String host, int port, String user, String pass, String path) {
+        prefs.edit()
+                .putBoolean(KEY_ENABLED, enabled)
+                .putString(KEY_HOST, host)
+                .putInt(KEY_PORT, port)
+                .putString(KEY_USER, user)
+                .putString(KEY_PASS, pass)
+                .putString(KEY_PATH, path)
+                .apply();
     }
 
-    public void setEnabled(boolean enabled) {
-        prefs.edit().putBoolean(KEY_ENABLED, enabled).apply();
-    }
+    // ── Sync ─────────────────────────────────────────────────────────────────
 
     /** Called after debounce fires: push current position to NAS. No-op if not connected. */
     public void push(String fileHash, String filePath, int charOffset, int totalChars) {
         if (!isEnabled() || !connected) return;
         // TODO: port DsFileApiClient from Minseo21
-        // Write /소설/.minseo/pos_{fileHash}.json
+        // Write {path}/pos_{fileHash}.json
     }
 
-    /** Returns true if NAS is reachable. */
-    public boolean isConnected() {
-        return connected;
-    }
+    public boolean isConnected() { return connected; }
 }

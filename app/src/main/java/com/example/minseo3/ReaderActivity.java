@@ -1,5 +1,6 @@
 package com.example.minseo3;
 
+import android.content.Intent;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -13,6 +14,7 @@ import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.activity.OnBackPressedCallback;
 import androidx.appcompat.app.AppCompatActivity;
 
 import java.io.File;
@@ -27,8 +29,9 @@ public class ReaderActivity extends AppCompatActivity {
     // ── UI
     private PageView pageView;
     private TextView tvPageInfo;
+    private TextView tvStatusLeft;
     private SeekBar seekBar;
-    private View bottomBar;
+    private View topBar, bottomBar;
     private ImageButton btnSettings, btnTts;
 
     // ── State
@@ -67,12 +70,14 @@ public class ReaderActivity extends AppCompatActivity {
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         setContentView(R.layout.activity_reader);
 
-        pageView = findViewById(R.id.page_view);
-        tvPageInfo = findViewById(R.id.tv_page_info);
-        seekBar = findViewById(R.id.seek_bar);
-        bottomBar = findViewById(R.id.bottom_bar);
-        btnSettings = findViewById(R.id.btn_settings);
-        btnTts = findViewById(R.id.btn_tts);
+        pageView      = findViewById(R.id.page_view);
+        tvPageInfo    = findViewById(R.id.tv_page_info);
+        tvStatusLeft  = findViewById(R.id.tv_status_left);
+        seekBar       = findViewById(R.id.seek_bar);
+        topBar        = findViewById(R.id.top_bar);
+        bottomBar     = findViewById(R.id.bottom_bar);
+        btnSettings   = findViewById(R.id.btn_settings);
+        btnTts        = findViewById(R.id.btn_tts);
 
         progressRepo = new LocalProgressRepository(this);
         nasSyncManager = new NasSyncManager(this);
@@ -97,10 +102,30 @@ public class ReaderActivity extends AppCompatActivity {
 
         setupTouchHandler();
         setupSeekBar();
+        setupTopMenu();
         btnSettings.setOnClickListener(v -> showSettings());
         btnTts.setOnClickListener(v -> toggleTts());
 
+        // Back button = exit app, not return to list
+        getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
+            @Override public void handleOnBackPressed() {
+                finishAffinity();
+            }
+        });
+
         loadFile(file, startOffset);
+    }
+
+    // ── Top menu (리스트 / 설정 / NAS) ────────────────────────────────────────
+
+    private void setupTopMenu() {
+        findViewById(R.id.menu_list).setOnClickListener(v -> {
+            // Back to BookListActivity. It's already in the task stack as parent.
+            finish();
+        });
+        findViewById(R.id.menu_settings).setOnClickListener(v -> showSettings());
+        findViewById(R.id.menu_nas).setOnClickListener(v ->
+                startActivity(new Intent(this, NasSettingsActivity.class)));
     }
 
     // ── File loading + pagination ────────────────────────────────────────────
@@ -112,7 +137,6 @@ public class ReaderActivity extends AppCompatActivity {
                 String loaded = FileUtils.readTextFile(file);
                 mainHandler.post(() -> {
                     text = loaded;
-                    // Wait for pageView to be laid out before paginating
                     pageView.post(() -> paginate(startOffset));
                 });
             } catch (Exception e) {
@@ -149,7 +173,12 @@ public class ReaderActivity extends AppCompatActivity {
         currentPage = page;
 
         pageView.setPage(pageRenderer.getPageText(text, currentPage), spToPx(textSizeSp), textColor, bgColor);
-        tvPageInfo.setText((currentPage + 1) + " / " + pageRenderer.getPageCount());
+
+        int total = pageRenderer.getPageCount();
+        int percent = (total > 0) ? ((currentPage + 1) * 100 / total) : 0;
+        String pageStr = (currentPage + 1) + " / " + total;
+        tvPageInfo.setText(pageStr);
+        tvStatusLeft.setText(pageStr + "  (" + percent + "%)");
         seekBar.setProgress(currentPage);
 
         scheduleSave();
@@ -190,7 +219,7 @@ public class ReaderActivity extends AppCompatActivity {
                     nextPage();
                     if (ttsActive) speakCurrentPage();
                 } else {
-                    toggleBottomBar();
+                    toggleUIBars();
                 }
                 return true;
             }
@@ -213,9 +242,11 @@ public class ReaderActivity extends AppCompatActivity {
 
     // ── UI toggle ────────────────────────────────────────────────────────────
 
-    private void toggleBottomBar() {
+    private void toggleUIBars() {
         uiVisible = !uiVisible;
-        bottomBar.setVisibility(uiVisible ? View.VISIBLE : View.GONE);
+        int vis = uiVisible ? View.VISIBLE : View.GONE;
+        topBar.setVisibility(vis);
+        bottomBar.setVisibility(vis);
     }
 
     private void showLoading(boolean show) {
@@ -233,7 +264,6 @@ public class ReaderActivity extends AppCompatActivity {
             textColor = newTextColor;
             bgColor = newBgColor;
             if (sizeChanged) {
-                // Font size change requires re-pagination to maintain correct position
                 int currentOffset = pageRenderer.getPageStartOffset(currentPage);
                 showLoading(true);
                 pageView.post(() -> paginate(currentOffset));
@@ -268,7 +298,7 @@ public class ReaderActivity extends AppCompatActivity {
         super.onPause();
         tts.stop();
         ttsActive = false;
-        flushSaveNow(); // don't wait for debounce when leaving the screen
+        flushSaveNow();
     }
 
     @Override
