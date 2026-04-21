@@ -1,0 +1,107 @@
+package com.example.minseo3;
+
+import android.os.Bundle;
+import android.view.LayoutInflater;
+import android.view.View;
+import android.view.ViewGroup;
+import android.widget.SeekBar;
+import android.widget.TextView;
+
+import com.google.android.material.bottomsheet.BottomSheetDialogFragment;
+
+public class SettingsBottomSheet extends BottomSheetDialogFragment {
+
+    public interface Listener {
+        void onChanged(float textSizeSp, int textColor, int bgColor);
+    }
+
+    private static final String ARG_SIZE = "size";
+    private static final String ARG_TEXT_COLOR = "text_color";
+    private static final String ARG_BG_COLOR = "bg_color";
+
+    // Background themes: {bgColor, textColor}
+    private static final int[][] THEMES = {
+            {0xFFFFFFFF, 0xFF222222}, // White
+            {0xFFF5ECD7, 0xFF3B2A1A}, // Sepia
+            {0xFFF0F0F0, 0xFF222222}, // Light gray
+            {0xFF2B2B2B, 0xFFDDDDDD}, // Dark
+            {0xFF000000, 0xFFEEEEEE}, // Black
+    };
+
+    private static final float[] FONT_SIZES = {14, 16, 17, 18, 20, 22, 24, 28};
+
+    private Listener listener;
+    private float currentSizeSp;
+    private int currentTextColor;
+    private int currentBgColor;
+
+    public static SettingsBottomSheet newInstance(float sizeSp, int textColor, int bgColor) {
+        SettingsBottomSheet f = new SettingsBottomSheet();
+        Bundle args = new Bundle();
+        args.putFloat(ARG_SIZE, sizeSp);
+        args.putInt(ARG_TEXT_COLOR, textColor);
+        args.putInt(ARG_BG_COLOR, bgColor);
+        f.setArguments(args);
+        return f;
+    }
+
+    public void setListener(Listener l) { this.listener = l; }
+
+    @Override
+    public View onCreateView(LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
+        View v = inflater.inflate(R.layout.bottom_sheet_settings, container, false);
+
+        Bundle args = getArguments();
+        currentSizeSp = args != null ? args.getFloat(ARG_SIZE, 17f) : 17f;
+        currentTextColor = args != null ? args.getInt(ARG_TEXT_COLOR, 0xFF222222) : 0xFF222222;
+        currentBgColor = args != null ? args.getInt(ARG_BG_COLOR, 0xFFFFFFFF) : 0xFFFFFFFF;
+
+        // Font size seek bar
+        SeekBar seekSize = v.findViewById(R.id.seek_font_size);
+        TextView tvSize = v.findViewById(R.id.tv_font_size);
+        seekSize.setMax(FONT_SIZES.length - 1);
+        int sizeIdx = closestFontSizeIndex(currentSizeSp);
+        seekSize.setProgress(sizeIdx);
+        tvSize.setText(String.valueOf((int) FONT_SIZES[sizeIdx]));
+        seekSize.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar sb, int progress, boolean fromUser) {
+                currentSizeSp = FONT_SIZES[progress];
+                tvSize.setText(String.valueOf((int) currentSizeSp));
+                notifyListener();
+            }
+            @Override public void onStartTrackingTouch(SeekBar sb) {}
+            @Override public void onStopTrackingTouch(SeekBar sb) {}
+        });
+
+        // Background theme buttons
+        int[] themeButtonIds = {
+                R.id.btn_theme_white, R.id.btn_theme_sepia,
+                R.id.btn_theme_gray, R.id.btn_theme_dark, R.id.btn_theme_black
+        };
+        for (int i = 0; i < themeButtonIds.length; i++) {
+            final int idx = i;
+            View btn = v.findViewById(themeButtonIds[i]);
+            if (btn != null) btn.setOnClickListener(view -> {
+                currentBgColor = THEMES[idx][0];
+                currentTextColor = THEMES[idx][1];
+                notifyListener();
+            });
+        }
+
+        return v;
+    }
+
+    private void notifyListener() {
+        if (listener != null) listener.onChanged(currentSizeSp, currentTextColor, currentBgColor);
+    }
+
+    private int closestFontSizeIndex(float sp) {
+        int best = 0;
+        float bestDiff = Float.MAX_VALUE;
+        for (int i = 0; i < FONT_SIZES.length; i++) {
+            float diff = Math.abs(FONT_SIZES[i] - sp);
+            if (diff < bestDiff) { bestDiff = diff; best = i; }
+        }
+        return best;
+    }
+}
