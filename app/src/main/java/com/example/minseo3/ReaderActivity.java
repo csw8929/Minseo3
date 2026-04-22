@@ -217,8 +217,22 @@ public class ReaderActivity extends AppCompatActivity {
         if (currentPage < pageRenderer.getPageCount() - 1) displayPage(currentPage + 1);
     }
 
-    private void previousPage() {
-        if (currentPage > 0) displayPage(currentPage - 1);
+    // ── Page-turn tap coalescing ─────────────────────────────────────────────
+    // Rapid taps accumulate into a single final jump so we don't waste
+    // StaticLayout rebuilds on intermediate pages.
+    private int pendingPageDelta = 0;
+    private final Runnable applyPageDeltaRunnable = () -> {
+        if (pendingPageDelta == 0) return;
+        int target = currentPage + pendingPageDelta;
+        pendingPageDelta = 0;
+        displayPage(target);
+        if (ttsActive) speakCurrentPage();
+    };
+
+    private void requestPageMove(int delta) {
+        pendingPageDelta += delta;
+        mainHandler.removeCallbacks(applyPageDeltaRunnable);
+        mainHandler.postDelayed(applyPageDeltaRunnable, 60);
     }
 
     // ── Save: 5-second debounce ───────────────────────────────────────────────
@@ -245,16 +259,17 @@ public class ReaderActivity extends AppCompatActivity {
 
     private void setupTouchHandler() {
         GestureDetector detector = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
+            // onSingleTapUp (not onSingleTapConfirmed) so taps fire immediately
+            // without waiting for the double-tap timeout — fast consecutive taps
+            // were being swallowed and felt like dropped frames.
             @Override
-            public boolean onSingleTapConfirmed(MotionEvent e) {
+            public boolean onSingleTapUp(MotionEvent e) {
                 float x = e.getX();
                 float w = pageView.getWidth();
                 if (x < w / 3f) {
-                    previousPage();
-                    if (ttsActive) speakCurrentPage();
+                    requestPageMove(-1);
                 } else if (x > 2f * w / 3f) {
-                    nextPage();
-                    if (ttsActive) speakCurrentPage();
+                    requestPageMove(+1);
                 } else {
                     toggleUIBars();
                 }
