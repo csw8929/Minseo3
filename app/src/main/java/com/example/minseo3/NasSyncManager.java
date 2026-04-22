@@ -3,6 +3,9 @@ package com.example.minseo3;
 import android.content.Context;
 import android.content.SharedPreferences;
 
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
 /**
  * NAS position sync — placeholder until DsFileApiClient is ported from Minseo21.
  * push() and fetchHistory() are no-ops until NAS connection is configured.
@@ -19,6 +22,12 @@ public class NasSyncManager {
 
     private final SharedPreferences prefs;
     private boolean connected = false;
+
+    private final ExecutorService networkExecutor = Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "NasSync");
+        t.setDaemon(true);
+        return t;
+    });
 
     public NasSyncManager(Context context) {
         prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
@@ -46,11 +55,16 @@ public class NasSyncManager {
 
     // ── Sync ─────────────────────────────────────────────────────────────────
 
-    /** Called after debounce fires: push current position to NAS. No-op if not connected. */
+    /**
+     * Called after debounce fires: push current position to NAS. No-op if not connected.
+     * Safe to call from the main thread — actual upload runs on a background thread.
+     */
     public void push(String fileHash, String filePath, int charOffset, int totalChars) {
         if (!isEnabled() || !connected) return;
-        // TODO: port DsFileApiClient from Minseo21
-        // Write {path}/pos_{fileHash}.json
+        networkExecutor.execute(() -> {
+            // TODO: port DsFileApiClient from Minseo21
+            // Write {path}/pos_{fileHash}.json
+        });
     }
 
     public boolean isConnected() { return connected; }
