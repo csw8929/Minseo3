@@ -9,7 +9,6 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Comparator;
 import java.util.List;
 
 public class FileUtils {
@@ -18,13 +17,17 @@ public class FileUtils {
         return new File(Environment.getExternalStorageDirectory(), "소설");
     }
 
-    public static List<File> listTextFiles() {
-        File dir = getNovelDir();
+    /** Lists subdirectories and .txt files in {@code dir}. Directories sort first. */
+    public static List<File> listEntries(File dir) {
         List<File> result = new ArrayList<>();
-        if (!dir.exists() || !dir.isDirectory()) return result;
-        File[] files = dir.listFiles(f -> f.isFile() && f.getName().toLowerCase().endsWith(".txt"));
+        if (dir == null || !dir.exists() || !dir.isDirectory()) return result;
+        File[] files = dir.listFiles(f ->
+                f.isDirectory() || (f.isFile() && f.getName().toLowerCase().endsWith(".txt")));
         if (files == null) return result;
-        Arrays.sort(files, Comparator.comparing(File::getName));
+        Arrays.sort(files, (a, b) -> {
+            if (a.isDirectory() != b.isDirectory()) return a.isDirectory() ? -1 : 1;
+            return a.getName().compareToIgnoreCase(b.getName());
+        });
         result.addAll(Arrays.asList(files));
         return result;
     }
