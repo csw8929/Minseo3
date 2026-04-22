@@ -64,6 +64,11 @@ public class ReaderActivity extends AppCompatActivity {
     // ── Save: 5-second debounce after last page turn
     private LocalProgressRepository progressRepo;
     private NasSyncManager nasSyncManager;
+    private PaginationCache paginationCache;
+
+    // False while the full paginate is running. Blocks page navigation, seekbar
+    // input, TTS, and saves so we don't act on incomplete pageOffsets.
+    private boolean paginationReady = false;
     private final Handler saveHandler = new Handler(Looper.getMainLooper());
     private final Runnable saveRunnable = () -> executor.execute(() -> {
         int offset = pageRenderer.getPageStartOffset(currentPage);
@@ -92,6 +97,7 @@ public class ReaderActivity extends AppCompatActivity {
 
         progressRepo = new LocalProgressRepository(this);
         nasSyncManager = new NasSyncManager(this);
+        paginationCache = new PaginationCache(this);
 
         readerPrefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         textSizeSp = readerPrefs.getFloat(PREF_TEXT_SIZE_SP, textSizeSp);
@@ -187,13 +193,49 @@ public class ReaderActivity extends AppCompatActivity {
         int w = pageView.getWidth() - pageView.getPaddingLeft() - pageView.getPaddingRight();
         int h = pageView.getHeight() - pageView.getPaddingTop() - pageView.getPaddingBottom();
         float textSizePx = spToPx(textSizeSp);
+        int sizeSpInt = (int) textSizeSp;
+
+        paginationReady = false;
+        seekBar.setEnabled(false);
 
         executor.execute(() -> {
-            pageRenderer.paginate(text, textSizePx, w, h);
-            int page = pageRenderer.offsetToPage(startOffset);
+            // 1) Cache hit → skip everything, jump straight to canonical page.
+            int[] cached = paginationCache.load(fileHash, sizeSpInt, w, h);
+            if (cached != null && cached.length > 0) {
+                pageRenderer.setOffsets(cached);
+                int page = pageRenderer.offsetToPage(startOffset);
+                mainHandler.post(() -> {
+                    showLoading(false);
+                    seekBar.setMax(Math.max(1, pageRenderer.getPageCount() - 1));
+                    seekBar.setEnabled(true);
+                    paginationReady = true;
+                    displayPage(page);
+                });
+                return;
+            }
+
+            // 2) Cache miss → render first page from a small window so the
+            //    user sees text immediately. Page count / seekbar stay deferred
+            //    until full pagination completes.
+            CharSequence firstPage = PageRenderer.computeFirstPageText(
+                    text, startOffset, textSizePx, w, h);
             mainHandler.post(() -> {
                 showLoading(false);
+                pageView.setPage(firstPage, textSizePx, textColor, bgColor);
+                tvPageInfo.setText("…");
+                tvStatusLeft.setText("…");
+                seekBar.setProgress(0);
+            });
+
+            // 3) Full paginate → cache → upgrade UI to canonical page.
+            pageRenderer.paginate(text, textSizePx, w, h);
+            int[] offsets = pageRenderer.getOffsetsArray();
+            paginationCache.save(fileHash, sizeSpInt, w, h, offsets);
+            int page = pageRenderer.offsetToPage(startOffset);
+            mainHandler.post(() -> {
                 seekBar.setMax(Math.max(1, pageRenderer.getPageCount() - 1));
+                seekBar.setEnabled(true);
+                paginationReady = true;
                 displayPage(page);
             });
         });
@@ -235,6 +277,7 @@ public class ReaderActivity extends AppCompatActivity {
     };
 
     private void requestPageMove(int delta) {
+        if (!paginationReady) return;
         pendingPageDelta += delta;
         mainHandler.removeCallbacks(applyPageDeltaRunnable);
         mainHandler.postDelayed(applyPageDeltaRunnable, 60);
@@ -254,6 +297,7 @@ public class ReaderActivity extends AppCompatActivity {
      */
     private void flushSaveNow() {
         saveHandler.removeCallbacks(saveRunnable);
+        if (!paginationReady) return; // partial state — would clobber saved offset with 0
         if (text.isEmpty() || pageRenderer.getPageCount() == 0) return;
         int offset = pageRenderer.getPageStartOffset(currentPage);
         progressRepo.save(fileHash, filePath, offset, text.length());
@@ -340,6 +384,7 @@ public class ReaderActivity extends AppCompatActivity {
     // ── TTS ──────────────────────────────────────────────────────────────────
 
     private void toggleTts() {
+        if (!paginationReady) return;
         ttsActive = !ttsActive;
         updateTtsButton();
         if (ttsActive) speakCurrentPage(); else tts.stop();
