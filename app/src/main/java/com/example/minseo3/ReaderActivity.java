@@ -1,6 +1,7 @@
 package com.example.minseo3;
 
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -44,7 +45,13 @@ public class ReaderActivity extends AppCompatActivity {
     private int currentPage = 0;
     private boolean uiVisible = true;
 
-    // ── Settings
+    // ── Settings (persisted in SharedPreferences "reader_prefs")
+    private static final String PREFS_NAME = "reader_prefs";
+    private static final String PREF_TEXT_SIZE_SP = "text_size_sp";
+    private static final String PREF_TEXT_COLOR   = "text_color";
+    private static final String PREF_BG_COLOR     = "bg_color";
+
+    private SharedPreferences readerPrefs;
     private float textSizeSp = 17f;
     private int textColor = 0xFF222222;
     private int bgColor = 0xFFFFFFFF;
@@ -85,6 +92,12 @@ public class ReaderActivity extends AppCompatActivity {
 
         progressRepo = new LocalProgressRepository(this);
         nasSyncManager = new NasSyncManager(this);
+
+        readerPrefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        textSizeSp = readerPrefs.getFloat(PREF_TEXT_SIZE_SP, textSizeSp);
+        textColor  = readerPrefs.getInt(PREF_TEXT_COLOR, textColor);
+        bgColor    = readerPrefs.getInt(PREF_BG_COLOR, bgColor);
+
         tts = new TtsController(this, new TtsController.Listener() {
             @Override public void onReady() {}
             @Override public void onDone() {
@@ -287,6 +300,11 @@ public class ReaderActivity extends AppCompatActivity {
             textSizeSp = newSizeSp;
             textColor = newTextColor;
             bgColor = newBgColor;
+            readerPrefs.edit()
+                    .putFloat(PREF_TEXT_SIZE_SP, textSizeSp)
+                    .putInt(PREF_TEXT_COLOR, textColor)
+                    .putInt(PREF_BG_COLOR, bgColor)
+                    .apply();
             if (sizeChanged) {
                 int currentOffset = pageRenderer.getPageStartOffset(currentPage);
                 showLoading(true);
