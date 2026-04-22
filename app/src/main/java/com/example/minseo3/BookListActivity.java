@@ -32,22 +32,24 @@ public class BookListActivity extends AppCompatActivity {
     private TextView tvEmpty;
     private LocalProgressRepository progressRepo;
     private BookAdapter adapter;
+    private File currentDir;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_book_list);
-        setTitle("소설 목록");
 
         progressRepo = new LocalProgressRepository(this);
         recyclerView = findViewById(R.id.recycler_view);
         tvEmpty = findViewById(R.id.tv_empty);
+        currentDir = FileUtils.getNovelDir();
 
         recyclerView.setLayoutManager(new LinearLayoutManager(this));
         recyclerView.addItemDecoration(new DividerItemDecoration(this, DividerItemDecoration.VERTICAL));
         adapter = new BookAdapter();
         recyclerView.setAdapter(adapter);
 
+        updateTitle();
         checkPermissionsAndLoad();
     }
 
@@ -55,14 +57,42 @@ public class BookListActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         // Refresh list when returning from ReaderActivity (progress may have updated)
-        if (hasStoragePermission()) loadBooks();
+        if (hasStoragePermission()) loadEntries();
+    }
+
+    @Override
+    public void onBackPressed() {
+        if (!isAtRoot()) {
+            currentDir = currentDir.getParentFile();
+            updateTitle();
+            loadEntries();
+            return;
+        }
+        super.onBackPressed();
+    }
+
+    private boolean isAtRoot() {
+        return currentDir == null || currentDir.equals(FileUtils.getNovelDir());
+    }
+
+    private void updateTitle() {
+        File root = FileUtils.getNovelDir();
+        if (isAtRoot()) {
+            setTitle("소설 목록");
+            return;
+        }
+        String rootPath = root.getAbsolutePath();
+        String cur = currentDir.getAbsolutePath();
+        String rel = cur.startsWith(rootPath) ? cur.substring(rootPath.length()) : cur;
+        if (rel.startsWith(File.separator)) rel = rel.substring(1);
+        setTitle(rel);
     }
 
     // ── Permissions ───────────────────────────────────────────────────────────
 
     private void checkPermissionsAndLoad() {
         if (hasStoragePermission()) {
-            loadBooks();
+            loadEntries();
         } else {
             requestStoragePermission();
         }
@@ -89,7 +119,7 @@ public class BookListActivity extends AppCompatActivity {
     public void onRequestPermissionsResult(int code, @NonNull String[] perms, @NonNull int[] results) {
         super.onRequestPermissionsResult(code, perms, results);
         if (code == REQ_STORAGE && results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED) {
-            loadBooks();
+            loadEntries();
         } else {
             tvEmpty.setText("/소설/ 폴더 접근 권한이 필요합니다.");
             tvEmpty.setVisibility(View.VISIBLE);
@@ -100,7 +130,7 @@ public class BookListActivity extends AppCompatActivity {
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == REQ_STORAGE) {
-            if (hasStoragePermission()) loadBooks();
+            if (hasStoragePermission()) loadEntries();
             else {
                 tvEmpty.setText("/소설/ 폴더 접근 권한이 필요합니다.");
                 tvEmpty.setVisibility(View.VISIBLE);
@@ -110,20 +140,28 @@ public class BookListActivity extends AppCompatActivity {
 
     // ── Book list ─────────────────────────────────────────────────────────────
 
-    private void loadBooks() {
-        List<File> files = FileUtils.listTextFiles();
+    private void loadEntries() {
+        List<File> files = FileUtils.listEntries(currentDir);
         List<BookItem> items = new ArrayList<>();
         for (File f : files) {
-            String hash = FileUtils.computeHash(f);
-            LocalProgressRepository.Entry entry = progressRepo.get(hash);
-            items.add(new BookItem(f, entry));
+            if (f.isDirectory()) {
+                items.add(new BookItem(f, null, true));
+            } else {
+                String hash = FileUtils.computeHash(f);
+                LocalProgressRepository.Entry entry = progressRepo.get(hash);
+                items.add(new BookItem(f, entry, false));
+            }
         }
         adapter.setItems(items);
 
         boolean empty = items.isEmpty();
         tvEmpty.setVisibility(empty ? View.VISIBLE : View.GONE);
         recyclerView.setVisibility(empty ? View.GONE : View.VISIBLE);
-        if (empty) tvEmpty.setText("/소설/ 폴더에 텍스트 파일이 없습니다.");
+        if (empty) {
+            tvEmpty.setText(isAtRoot()
+                    ? "/소설/ 폴더에 텍스트 파일이 없습니다."
+                    : "이 폴더가 비어있습니다.");
+        }
     }
 
     private void openBook(BookItem item) {
@@ -133,13 +171,20 @@ public class BookListActivity extends AppCompatActivity {
         startActivity(intent);
     }
 
+    private void openFolder(BookItem item) {
+        currentDir = item.file;
+        updateTitle();
+        loadEntries();
+    }
+
     // ── Data model ────────────────────────────────────────────────────────────
 
     static class BookItem {
         final File file;
-        final LocalProgressRepository.Entry entry; // null if never opened
-        BookItem(File file, LocalProgressRepository.Entry entry) {
-            this.file = file; this.entry = entry;
+        final LocalProgressRepository.Entry entry; // null if never opened or a directory
+        final boolean isDirectory;
+        BookItem(File file, LocalProgressRepository.Entry entry, boolean isDirectory) {
+            this.file = file; this.entry = entry; this.isDirectory = isDirectory;
         }
     }
 
@@ -159,6 +204,13 @@ public class BookListActivity extends AppCompatActivity {
         @Override
         public void onBindViewHolder(@NonNull VH h, int pos) {
             BookItem item = items.get(pos);
+            if (item.isDirectory) {
+                h.tvTitle.setText("📁 " + item.file.getName());
+                h.tvInfo.setText("폴더");
+                h.progressBar.setVisibility(View.INVISIBLE);
+                h.itemView.setOnClickListener(v -> openFolder(item));
+                return;
+            }
             h.tvTitle.setText(FileUtils.displayName(item.file));
             if (item.entry != null) {
                 h.tvInfo.setText(item.entry.percentRead() + "% · " + item.entry.lastReadFormatted());
