@@ -35,12 +35,12 @@ public final class DsAuth {
     static final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     // ── 런타임 인증 정보 (init()에서 주입) ─────────────────────────────────────
-    static volatile String cfgBaseUrl  = "";
-    static volatile String cfgLanUrl   = "";
-    static volatile String cfgUser     = "";
-    static volatile String cfgPass     = "";
-    static volatile String cfgBasePath = "/";
-    static volatile String cfgPosDir   = "/";
+    public static volatile String cfgBaseUrl  = "";
+    public static volatile String cfgLanUrl   = "";
+    public static volatile String cfgUser     = "";
+    public static volatile String cfgPass     = "";
+    public static volatile String cfgBasePath = "/";
+    public static volatile String cfgPosDir   = "/";
 
     private DsAuth() {}
 

@@ -83,9 +83,20 @@ public class NasSyncManager {
 
     private void initDsAuthFromPrefs(Prefs p) {
         String baseUrl = buildBaseUrl(p.getHost(), p.getPort());
-        DsAuth.init(baseUrl, /*lanUrl*/ "", p.getUser(), p.getPass(),
-                /*basePath*/ "/", p.getPath());
+        String user = p.getUser();
+        String pass = p.getPass();
+        String posDir = p.getPath();
+        // Idempotent — 여러 NasSyncManager 인스턴스가 같은 prefs 로 만들어져도 cachedSid 가 살아남게.
+        boolean same = baseUrl.equals(DsAuth.cfgBaseUrl)
+                && user.equals(DsAuth.cfgUser)
+                && pass.equals(DsAuth.cfgPass)
+                && posDir.equals(DsAuth.cfgPosDir);
+        if (same) return;
+        DsAuth.init(baseUrl, /*lanUrl*/ "", user, pass, /*basePath*/ "/", posDir);
     }
+
+    /** 외부에서 현재 단말의 deviceId 를 읽을 수 있도록 노출 (ConflictResolver 용). */
+    public String deviceId() { return repo.deviceId(); }
 
     /** "host" + port 를 http/https scheme 으로 조립. port 5001/443 → https, 그 외 http. */
     static String buildBaseUrl(String host, int port) {

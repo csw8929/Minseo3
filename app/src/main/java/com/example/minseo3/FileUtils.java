@@ -57,6 +57,32 @@ public class FileUtils {
         }
     }
 
+    /**
+     * NAS 탭에서 활성/비활성 판정용. /소설/ 트리를 재귀 탐색해 같은 파일명 + 같은
+     * 크기 의 .txt 를 찾는다 (중첩 폴더 지원).
+     */
+    public static File findLocalByNameAndSize(String fileName, long fileSize) {
+        if (fileName == null) return null;
+        return findRecursive(getNovelDir(), fileName, fileSize);
+    }
+
+    private static File findRecursive(File dir, String fileName, long fileSize) {
+        if (dir == null || !dir.exists() || !dir.isDirectory()) return null;
+        File[] files = dir.listFiles();
+        if (files == null) return null;
+        for (File f : files) {
+            if (f.isFile() && f.getName().equals(fileName) && f.length() == fileSize
+                    && fileName.toLowerCase().endsWith(".txt")) {
+                return f;
+            }
+            if (f.isDirectory()) {
+                File hit = findRecursive(f, fileName, fileSize);
+                if (hit != null) return hit;
+            }
+        }
+        return null;
+    }
+
     public static String displayName(File file) {
         String name = file.getName();
         if (name.toLowerCase().endsWith(".txt")) name = name.substring(0, name.length() - 4);

@@ -16,10 +16,16 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.activity.OnBackPressedCallback;
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
+
+import com.example.minseo3.nas.ConflictOutcome;
+import com.example.minseo3.nas.ConflictResolver;
+import com.example.minseo3.nas.RemoteProgressRepository;
+import com.example.minseo3.nas.RemotePosition;
 
 import java.io.File;
 import java.util.concurrent.ExecutorService;
@@ -29,6 +35,8 @@ public class ReaderActivity extends AppCompatActivity {
 
     public static final String EXTRA_FILE_PATH = "file_path";
     public static final String EXTRA_CHAR_OFFSET = "char_offset";
+    /** true 면 NAS 와의 충돌 해결을 건너뜀 — NAS 탭에서 진입한 경우 사용. */
+    public static final String EXTRA_SKIP_CONFLICT_RESOLVE = "skip_conflict_resolve";
 
     // ── UI
     private PageView pageView;
@@ -89,6 +97,9 @@ public class ReaderActivity extends AppCompatActivity {
     private TtsController tts;
     private boolean ttsActive = false;
 
+    private boolean skipConflictResolve = false;
+    private boolean conflictResolved = false;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -131,6 +142,7 @@ public class ReaderActivity extends AppCompatActivity {
 
         filePath = getIntent().getStringExtra(EXTRA_FILE_PATH);
         int startOffset = getIntent().getIntExtra(EXTRA_CHAR_OFFSET, 0);
+        skipConflictResolve = getIntent().getBooleanExtra(EXTRA_SKIP_CONFLICT_RESOLVE, false);
 
         if (filePath == null) { finish(); return; }
 
@@ -252,8 +264,59 @@ public class ReaderActivity extends AppCompatActivity {
                 seekBar.setEnabled(true);
                 paginationReady = true;
                 displayPage(page);
+                maybeResolveNasConflict();
             });
         });
+    }
+
+    // ── NAS 충돌 해결 (책 열 때 1회) ─────────────────────────────────────────
+
+    private void maybeResolveNasConflict() {
+        if (skipConflictResolve || conflictResolved) return;
+        if (!nasSyncManager.isEnabled() || !nasSyncManager.isConnected()) return;
+        conflictResolved = true;
+
+        final int localOffset = pageRenderer.getPageStartOffset(currentPage);
+        final LocalProgressRepository.Entry localEntry = progressRepo.get(fileHash);
+        final long localLastRead = localEntry != null ? localEntry.lastRead : 0L;
+        final String myDeviceId = nasSyncManager.deviceId();
+
+        nasSyncManager.fetchOne(fileHash, new RemoteProgressRepository.Callback<RemotePosition>() {
+            @Override public void onResult(RemotePosition nasPos) {
+                mainHandler.post(() -> applyConflictOutcome(
+                        ConflictResolver.resolve(localOffset, localLastRead, myDeviceId, nasPos),
+                        nasPos));
+            }
+            @Override public void onError(String message) { /* 조용히 로컬 유지 */ }
+        });
+    }
+
+    private void applyConflictOutcome(ConflictOutcome outcome, RemotePosition nasPos) {
+        if (outcome.needsDialog) {
+            showConflictDialog(nasPos);
+            return;
+        }
+        int currentOffset = pageRenderer.getPageStartOffset(currentPage);
+        if (outcome.resolvedOffset != currentOffset) {
+            displayPage(pageRenderer.offsetToPage(outcome.resolvedOffset));
+        }
+    }
+
+    private void showConflictDialog(RemotePosition nasPos) {
+        int nasPercent = nasPos.totalChars > 0
+                ? (int) (nasPos.charOffset * 100L / nasPos.totalChars) : 0;
+        String deviceShort = nasPos.deviceId.length() >= 4
+                ? nasPos.deviceId.substring(0, 4) : nasPos.deviceId;
+        String msg = "다른 기기(" + deviceShort + ")에서 " + nasPercent + "% 지점까지 읽은 기록이 있습니다.\n"
+                + "그 위치로 이동할까요?";
+        new AlertDialog.Builder(this)
+                .setTitle("이어 읽기")
+                .setMessage(msg)
+                .setPositiveButton("이동", (d, w) ->
+                        displayPage(pageRenderer.offsetToPage(nasPos.charOffset)))
+                .setNegativeButton("여기서 계속", null)
+                .setCancelable(false)
+                .show();
     }
 
     // ── Page display ─────────────────────────────────────────────────────────
