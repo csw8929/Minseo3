@@ -110,19 +110,23 @@ public class NasSyncManagerTest {
 
     private static final class InMemoryPrefs implements NasSyncManager.Prefs {
         boolean enabled = false;
-        String host = "", user = "", pass = "", path = "/소설/.minseo/";
-        int port = 5000;
+        String host = "", user = "", pass = "", path = "/소설/.minseo/", lanHost = "";
+        int port = 5000, lanPort = 5000;
 
-        @Override public boolean isEnabled() { return enabled; }
-        @Override public String  getHost()   { return host; }
-        @Override public int     getPort()   { return port; }
-        @Override public String  getUser()   { return user; }
-        @Override public String  getPass()   { return pass; }
-        @Override public String  getPath()   { return path; }
+        @Override public boolean isEnabled()  { return enabled; }
+        @Override public String  getHost()    { return host; }
+        @Override public int     getPort()    { return port; }
+        @Override public String  getUser()    { return user; }
+        @Override public String  getPass()    { return pass; }
+        @Override public String  getPath()    { return path; }
+        @Override public String  getLanHost() { return lanHost; }
+        @Override public int     getLanPort() { return lanPort; }
         @Override public void save(boolean enabled, String host, int port,
-                                   String user, String pass, String path) {
+                                   String user, String pass, String path,
+                                   String lanHost, int lanPort) {
             this.enabled = enabled; this.host = host; this.port = port;
             this.user = user; this.pass = pass; this.path = path;
+            this.lanHost = lanHost; this.lanPort = lanPort;
         }
     }
 

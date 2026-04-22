@@ -62,6 +62,37 @@
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:text="LAN 주소 (선택 — 같은 공유기 WiFi 우선 접속)"
+            android:textSize="13sp"
+            android:textColor="?android:attr/textColorSecondary" />
+
+        <EditText
+            android:id="@+id/et_lan_host"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:inputType="textUri"
+            android:hint="192.168.x.x"
+            android:autofillHints="off" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="LAN 포트"
+            android:textSize="13sp"
+            android:textColor="?android:attr/textColorSecondary" />
+
+        <EditText
+            android:id="@+id/et_lan_port"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:inputType="number"
+            android:hint="5000"
+            android:autofillHints="off"
+            android:layout_marginBottom="12dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
             android:text="사용자 이름"
             android:textSize="13sp"
             android:textColor="?android:attr/textColorSecondary" />
@@ -106,10 +137,27 @@
             android:layout_marginBottom="24dp" />
 
         <Button
-            android:id="@+id/btn_save"
+            android:id="@+id/btn_test"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="저장" />
+            android:text="연결 테스트 후 저장" />
+
+        <TextView
+            android:id="@+id/tv_result"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="14sp"
+            android:layout_marginTop="8dp"
+            android:layout_marginBottom="4dp"
+            android:visibility="gone" />
+
+        <Button
+            android:id="@+id/btn_save"
+            style="?attr/borderlessButtonStyle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="테스트 건너뛰고 저장만"
+            android:textSize="13sp" />
 
         <TextView
             android:layout_width="match_parent"

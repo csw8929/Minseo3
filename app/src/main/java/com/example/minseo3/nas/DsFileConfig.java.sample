@@ -15,4 +15,8 @@ public final class DsFileConfig {
     public static final int    PORT = 5001;           // 5001/443 → HTTPS, 그 외 → HTTP
     public static final String USER = "your_user";
     public static final String PATH = "/your_share/.minseo/";
+
+    /** 같은 공유기 아래 있을 때 시도할 로컬 IP (선택). 비워두면 LAN probe 생략. */
+    public static final String LAN_HOST = "";
+    public static final int    LAN_PORT = 5000;
 }

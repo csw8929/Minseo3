@@ -39,6 +39,10 @@ public class BookListActivity extends AppCompatActivity {
         setContentView(R.layout.activity_book_list);
         setTitle("소설 목록");
 
+        // NasSyncManager 를 앱 시작 시점에 한 번 구성해 seeding / LAN top-up 이 실행되도록 함.
+        // (이후 Fragment 들이 각자 새 인스턴스를 만들어도 prefs 는 같으니 DsAuth.init 이 idempotent 하게 동작)
+        new NasSyncManager(this);
+
         viewPager = findViewById(R.id.view_pager);
         TabLayout tabLayout = findViewById(R.id.tab_layout);
         pagerAdapter = new PagerAdapter(this);

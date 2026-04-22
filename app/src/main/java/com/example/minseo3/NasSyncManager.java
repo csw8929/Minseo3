@@ -20,6 +20,7 @@ import java.util.concurrent.Executors;
 /**
  * NAS position sync. Phase 2: Synology FileStation 구현 배선.
  * push/fetchOne/fetchAll 모두 실 NAS 에 붙어 작동.
+ * LAN URL 이 주어지면 DsAuth 가 기동 시 LAN probe → 실패 시 DDNS 폴백.
  */
 public class NasSyncManager {
 
@@ -32,6 +33,8 @@ public class NasSyncManager {
     private static final String KEY_USER       = "nas_user";
     private static final String KEY_PASS       = "nas_pass";
     private static final String KEY_PATH       = "nas_path";
+    private static final String KEY_LAN_HOST   = "nas_lan_host";
+    private static final String KEY_LAN_PORT   = "nas_lan_port";
     private static final String KEY_DEVICE_ID  = "nas_device_id";
 
     /** ANDROID_ID가 이 값이면 에뮬레이터/비정상 단말 → UUID 폴백. */
@@ -45,8 +48,11 @@ public class NasSyncManager {
         String  getUser();
         String  getPass();
         String  getPath();
+        String  getLanHost();
+        int     getLanPort();
         void    save(boolean enabled, String host, int port,
-                     String user, String pass, String path);
+                     String user, String pass, String path,
+                     String lanHost, int lanPort);
     }
 
     private final Prefs prefs;
@@ -60,6 +66,8 @@ public class NasSyncManager {
                 defaultExecutor());
         Context app = context.getApplicationContext();
         seedDefaultsIfFirstLaunch(app);
+        topUpPasswordFromConfigIfEmpty();
+        topUpLanFromConfigIfEmpty();
         DsAuth.startNetworkMonitoring(app);
         initDsAuthFromPrefs(this.prefs);
         // 낙관적 초기값 — 활성화 되어 있으면 곧 push/fetch 시도하도록 true.
@@ -80,6 +88,8 @@ public class NasSyncManager {
         Integer port = readCfgInt("PORT", null);
         String user = readCfgString("USER", "");
         String path = readCfgString("PATH", "/소설/.minseo/");
+        String lanHost = readCfgString("LAN_HOST", "");
+        Integer lanPort = readCfgInt("LAN_PORT", null);
 
         if (host.isEmpty() && user.isEmpty() && port == null) return; // DsFileConfig 없음 — 시드 안 함
 
@@ -89,8 +99,51 @@ public class NasSyncManager {
                 port != null ? port : 5000,
                 user,
                 /*pass 는 시드 안 함 — 사용자가 직접 입력*/ "",
-                path);
-        Log.i(TAG, "DsFileConfig 로 prefs 시드 완료 (host=" + host + ", path=" + path + ")");
+                path,
+                lanHost,
+                lanPort != null ? lanPort : 5000);
+        Log.i(TAG, "DsFileConfig 로 prefs 시드 완료 (host=" + host + ", lanHost=" + lanHost + ")");
+    }
+
+    /**
+     * prefs 의 비밀번호가 비어 있고 DsFileConfig.PASS 가 존재하면 prefs 로 복사.
+     * 테스트 편의 — 실제 공개 코드에서는 DsFileConfig.PASS 를 비워두면 이 블록이 no-op.
+     */
+    private void topUpPasswordFromConfigIfEmpty() {
+        if (!prefs.getPass().isEmpty()) return;
+        String cfgPass = readCfgString("PASS", "");
+        if (cfgPass.isEmpty()) return;
+        prefs.save(
+                prefs.isEnabled(),
+                prefs.getHost(),
+                prefs.getPort(),
+                prefs.getUser(),
+                cfgPass,
+                prefs.getPath(),
+                prefs.getLanHost(),
+                prefs.getLanPort());
+        Log.i(TAG, "DsFileConfig.PASS 로 비어있던 비밀번호 보충");
+    }
+
+    /**
+     * prefs 의 LAN host 가 비어 있고 DsFileConfig.LAN_HOST 가 존재하면 보충.
+     * 기존 버전에서 업그레이드된 경우 — LAN 필드가 신규 추가되어 prefs 에 없음.
+     */
+    private void topUpLanFromConfigIfEmpty() {
+        if (!prefs.getLanHost().isEmpty()) return;
+        String cfgLanHost = readCfgString("LAN_HOST", "");
+        if (cfgLanHost.isEmpty()) return;
+        Integer cfgLanPort = readCfgInt("LAN_PORT", null);
+        prefs.save(
+                prefs.isEnabled(),
+                prefs.getHost(),
+                prefs.getPort(),
+                prefs.getUser(),
+                prefs.getPass(),
+                prefs.getPath(),
+                cfgLanHost,
+                cfgLanPort != null ? cfgLanPort : 5000);
+        Log.i(TAG, "DsFileConfig.LAN_HOST 로 비어있던 LAN 보충 (" + cfgLanHost + ")");
     }
 
     private static String readCfgString(String field, String fallback) {
@@ -126,16 +179,18 @@ public class NasSyncManager {
 
     private void initDsAuthFromPrefs(Prefs p) {
         String baseUrl = buildBaseUrl(p.getHost(), p.getPort());
+        String lanUrl  = buildBaseUrl(p.getLanHost(), p.getLanPort());
         String user = p.getUser();
         String pass = p.getPass();
         String posDir = p.getPath();
         // Idempotent — 여러 NasSyncManager 인스턴스가 같은 prefs 로 만들어져도 cachedSid 가 살아남게.
         boolean same = baseUrl.equals(DsAuth.cfgBaseUrl)
+                && lanUrl.equals(DsAuth.cfgLanUrl)
                 && user.equals(DsAuth.cfgUser)
                 && pass.equals(DsAuth.cfgPass)
                 && posDir.equals(DsAuth.cfgPosDir);
         if (same) return;
-        DsAuth.init(baseUrl, /*lanUrl*/ "", user, pass, /*basePath*/ "/", posDir);
+        DsAuth.init(baseUrl, lanUrl, user, pass, /*basePath*/ "/", posDir);
     }
 
     /** 외부에서 현재 단말의 deviceId 를 읽을 수 있도록 노출 (ConflictResolver 용). */
@@ -156,16 +211,19 @@ public class NasSyncManager {
 
     // ── Settings passthrough ─────────────────────────────────────────────────
 
-    public boolean isEnabled() { return prefs.isEnabled(); }
-    public String  getHost()   { return prefs.getHost(); }
-    public int     getPort()   { return prefs.getPort(); }
-    public String  getUser()   { return prefs.getUser(); }
-    public String  getPass()   { return prefs.getPass(); }
-    public String  getPath()   { return prefs.getPath(); }
+    public boolean isEnabled()  { return prefs.isEnabled(); }
+    public String  getHost()    { return prefs.getHost(); }
+    public int     getPort()    { return prefs.getPort(); }
+    public String  getUser()    { return prefs.getUser(); }
+    public String  getPass()    { return prefs.getPass(); }
+    public String  getPath()    { return prefs.getPath(); }
+    public String  getLanHost() { return prefs.getLanHost(); }
+    public int     getLanPort() { return prefs.getLanPort(); }
 
     public void save(boolean enabled, String host, int port,
-                     String user, String pass, String path) {
-        prefs.save(enabled, host, port, user, pass, path);
+                     String user, String pass, String path,
+                     String lanHost, int lanPort) {
+        prefs.save(enabled, host, port, user, pass, path, lanHost, lanPort);
         initDsAuthFromPrefs(prefs);
         this.connected = enabled; // 설정 저장 시점에 낙관적으로 리셋
     }
@@ -267,14 +325,17 @@ public class NasSyncManager {
             this.sp = ctx.getApplicationContext()
                     .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         }
-        @Override public boolean isEnabled() { return sp.getBoolean(KEY_ENABLED, false); }
-        @Override public String  getHost()   { return sp.getString(KEY_HOST, ""); }
-        @Override public int     getPort()   { return sp.getInt(KEY_PORT, 5000); }
-        @Override public String  getUser()   { return sp.getString(KEY_USER, ""); }
-        @Override public String  getPass()   { return sp.getString(KEY_PASS, ""); }
-        @Override public String  getPath()   { return sp.getString(KEY_PATH, "/소설/.minseo/"); }
+        @Override public boolean isEnabled()  { return sp.getBoolean(KEY_ENABLED, false); }
+        @Override public String  getHost()    { return sp.getString(KEY_HOST, ""); }
+        @Override public int     getPort()    { return sp.getInt(KEY_PORT, 5000); }
+        @Override public String  getUser()    { return sp.getString(KEY_USER, ""); }
+        @Override public String  getPass()    { return sp.getString(KEY_PASS, ""); }
+        @Override public String  getPath()    { return sp.getString(KEY_PATH, "/소설/.minseo/"); }
+        @Override public String  getLanHost() { return sp.getString(KEY_LAN_HOST, ""); }
+        @Override public int     getLanPort() { return sp.getInt(KEY_LAN_PORT, 5000); }
         @Override public void save(boolean enabled, String host, int port,
-                                   String user, String pass, String path) {
+                                   String user, String pass, String path,
+                                   String lanHost, int lanPort) {
             sp.edit()
                     .putBoolean(KEY_ENABLED, enabled)
                     .putString(KEY_HOST, host)
@@ -282,6 +343,8 @@ public class NasSyncManager {
                     .putString(KEY_USER, user)
                     .putString(KEY_PASS, pass)
                     .putString(KEY_PATH, path)
+                    .putString(KEY_LAN_HOST, lanHost)
+                    .putInt(KEY_LAN_PORT, lanPort)
                     .apply();
         }
     }
