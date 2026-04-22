@@ -51,8 +51,12 @@ public final class SynologyFileStationRepository implements RemoteProgressReposi
         try {
             byte[] body = pos.toJson().toString().getBytes(StandardCharsets.UTF_8);
             withSidAndRetry(sid -> {
-                String url = DsAuth.apiBase() + "/webapi/entry.cgi";
-                String resp = DsHttp.uploadFile(url, resolvePosDir(), "pos_" + fileHash + ".json", body, sid);
+                // Upload 엔드포인트는 _sid 를 URL 쿼리로도 받아야 함 — form field 만 전달하면
+                // DSM 이 code 119 (SID not found) 로 거부함. Minseo21 DsPlayback 주석 참고.
+                String url = DsAuth.apiBase() + "/webapi/entry.cgi?_sid="
+                        + URLEncoder.encode(sid, "UTF-8");
+                String resp = DsHttp.uploadFile(url, resolvePosDir(),
+                        "pos_" + fileHash + ".json", body, sid);
                 JSONObject json = new JSONObject(resp);
                 if (!json.optBoolean("success", false)) {
                     int code = errorCode(json);
@@ -81,7 +85,9 @@ public final class SynologyFileStationRepository implements RemoteProgressReposi
                         + "&_sid=" + sid;
                 String body = DsHttp.httpGet(url);
                 // Download 엔드포인트는 raw 바이트 — 우리 경우 JSON 문자열 그대로.
-                // 단, 파일이 없거나 권한 오류면 {success:false, error:{code:...}} envelope 리턴.
+                // HTTP 404 는 HTML 에러 페이지로 옴 → "파일 없음"으로 간주.
+                if (body.startsWith("<")) return null;
+                // 파일이 없거나 권한 오류면 {success:false, error:{code:...}} envelope 리턴.
                 if (body.startsWith("{") && body.contains("\"success\"")) {
                     JSONObject envelope = new JSONObject(body);
                     if (!envelope.optBoolean("success", false)) {
@@ -151,6 +157,7 @@ public final class SynologyFileStationRepository implements RemoteProgressReposi
                 + "&mode=open"
                 + "&_sid=" + sid;
         String body = DsHttp.httpGet(url);
+        if (body.startsWith("<")) return null; // HTML 404 → 없음
         if (body.startsWith("{") && body.contains("\"success\"")) {
             JSONObject envelope = new JSONObject(body);
             if (!envelope.optBoolean("success", false)) return null;

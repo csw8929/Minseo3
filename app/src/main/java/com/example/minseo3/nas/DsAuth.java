@@ -55,7 +55,7 @@ public final class DsAuth {
         cfgPosDir   = posDir   == null ? "/" : posDir;
         cachedSid    = null;
         resolvedBase = null;
-        Log.i(TAG, "DsAuth.init (baseUrl=" + cfgBaseUrl + ")");
+        Log.i(TAG, "DsAuth.init baseUrl=" + cfgBaseUrl + " lanUrl=" + cfgLanUrl);
     }
 
     /** 네트워크 전환(5G↔WiFi) 감지하여 resolvedBase / SID 캐시 무효화. */
@@ -91,7 +91,7 @@ public final class DsAuth {
     }
 
     /** 로그인 (비동기). 성공 시 SID 콜백. 콜백은 메인 스레드에서 실행. */
-    static void login(RemoteProgressRepository.Callback<String> cb) {
+    public static void login(RemoteProgressRepository.Callback<String> cb) {
         executor.execute(() -> {
             try {
                 if (resolvedBase == null) {
@@ -125,14 +125,14 @@ public final class DsAuth {
     }
 
     /** API 호출에 사용할 base URL — LAN 성공 시 LAN, 아니면 cfgBaseUrl. */
-    static String apiBase() {
+    public static String apiBase() {
         return resolvedBase != null ? resolvedBase : cfgBaseUrl;
     }
 
     /** executor 스레드에서만 호출 (probeUrl 이 네트워크 호출). */
     private static String resolveBase() {
         if (cfgLanUrl != null && !cfgLanUrl.isEmpty() && DsHttp.probeUrl(cfgLanUrl)) {
-            Log.i(TAG, "LAN NAS 연결: " + cfgLanUrl);
+            Log.i(TAG, "LAN 연결: " + cfgLanUrl);
             return cfgLanUrl;
         }
         Log.i(TAG, "외부 연결: " + cfgBaseUrl);
