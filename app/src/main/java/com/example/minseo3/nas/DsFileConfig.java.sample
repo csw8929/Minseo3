@@ -1,0 +1,18 @@
+// 복사 사용법:
+//   cp DsFileConfig.java.sample DsFileConfig.java
+//   그 뒤 아래 값을 본인 NAS 값으로 수정.
+//
+// 이 파일은 .java 확장자가 아니므로 컴파일되지 않음 — 레포에 문서용으로만 존재한다.
+// DsFileConfig.java 는 .gitignore 로 제외되어 커밋되지 않는다.
+// 비밀번호는 이 파일에 두지 말 것 — 앱의 NAS 설정 화면에서 한 번 입력하면 된다.
+
+package com.example.minseo3.nas;
+
+public final class DsFileConfig {
+    private DsFileConfig() {}
+
+    public static final String HOST = "your.host.synology.me";
+    public static final int    PORT = 5001;           // 5001/443 → HTTPS, 그 외 → HTTP
+    public static final String USER = "your_user";
+    public static final String PATH = "/your_share/.minseo/";
+}

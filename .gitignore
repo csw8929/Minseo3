@@ -33,3 +33,6 @@ screen.png
 
 # Claude Code session artifacts
 .claude/
+
+# Personal NAS credentials — see DsFileConfig.java.sample for template
+app/src/main/java/com/example/minseo3/nas/DsFileConfig.java

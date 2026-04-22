@@ -59,11 +59,54 @@ public class NasSyncManager {
                 new SynologyFileStationRepository(computeDeviceId(context)),
                 defaultExecutor());
         Context app = context.getApplicationContext();
+        seedDefaultsIfFirstLaunch(app);
         DsAuth.startNetworkMonitoring(app);
         initDsAuthFromPrefs(this.prefs);
         // 낙관적 초기값 — 활성화 되어 있으면 곧 push/fetch 시도하도록 true.
         // 실제 네트워크 실패 시 onError 콜백에서 false 로 떨어뜨린다.
         this.connected = this.prefs.isEnabled();
+    }
+
+    /**
+     * 첫 실행 감지 (KEY_HOST 가 없음) 시 DsFileConfig 의 값으로 prefs 를 시드.
+     * DsFileConfig.java 는 .gitignore 로 제외돼 있어 리플렉션으로 조회 — 없으면 조용히 스킵.
+     * 비밀번호는 시드하지 않음 (보안).
+     */
+    private void seedDefaultsIfFirstLaunch(Context app) {
+        SharedPreferences sp = app.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        if (sp.contains(KEY_HOST)) return; // 이미 시드됐거나 사용자가 설정 저장한 상태
+
+        String host = readCfgString("HOST", "");
+        Integer port = readCfgInt("PORT", null);
+        String user = readCfgString("USER", "");
+        String path = readCfgString("PATH", "/소설/.minseo/");
+
+        if (host.isEmpty() && user.isEmpty() && port == null) return; // DsFileConfig 없음 — 시드 안 함
+
+        prefs.save(
+                /*enabled*/ true,
+                host,
+                port != null ? port : 5000,
+                user,
+                /*pass 는 시드 안 함 — 사용자가 직접 입력*/ "",
+                path);
+        Log.i(TAG, "DsFileConfig 로 prefs 시드 완료 (host=" + host + ", path=" + path + ")");
+    }
+
+    private static String readCfgString(String field, String fallback) {
+        try {
+            Class<?> c = Class.forName("com.example.minseo3.nas.DsFileConfig");
+            Object v = c.getField(field).get(null);
+            return v == null ? fallback : v.toString();
+        } catch (Throwable ignored) { return fallback; }
+    }
+
+    private static Integer readCfgInt(String field, Integer fallback) {
+        try {
+            Class<?> c = Class.forName("com.example.minseo3.nas.DsFileConfig");
+            Object v = c.getField(field).get(null);
+            return v instanceof Integer ? (Integer) v : fallback;
+        } catch (Throwable ignored) { return fallback; }
     }
 
     /** 테스트/DI용. */

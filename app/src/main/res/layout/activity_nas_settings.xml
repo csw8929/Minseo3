@@ -114,7 +114,7 @@
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="※ 실제 동기화는 다음 업데이트에서 활성화됩니다."
+            android:text="※ Synology FileStation HTTP API 사용. 포트 5001/443 → HTTPS, 그 외 → HTTP."
             android:textSize="12sp"
             android:textColor="?android:attr/textColorSecondary"
             android:layout_marginTop="16dp" />
