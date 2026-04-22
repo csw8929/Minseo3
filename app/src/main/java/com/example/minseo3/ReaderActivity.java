@@ -1,6 +1,7 @@
 package com.example.minseo3;
 
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -44,7 +45,13 @@ public class ReaderActivity extends AppCompatActivity {
     private int currentPage = 0;
     private boolean uiVisible = true;
 
-    // ── Settings
+    // ── Settings (persisted in SharedPreferences "reader_prefs")
+    private static final String PREFS_NAME = "reader_prefs";
+    private static final String PREF_TEXT_SIZE_SP = "text_size_sp";
+    private static final String PREF_TEXT_COLOR   = "text_color";
+    private static final String PREF_BG_COLOR     = "bg_color";
+
+    private SharedPreferences readerPrefs;
     private float textSizeSp = 17f;
     private int textColor = 0xFF222222;
     private int bgColor = 0xFFFFFFFF;
@@ -57,6 +64,21 @@ public class ReaderActivity extends AppCompatActivity {
     // ── Save: 5-second debounce after last page turn
     private LocalProgressRepository progressRepo;
     private NasSyncManager nasSyncManager;
+    private PaginationCache paginationCache;
+
+    // False while the full paginate is running. Blocks page navigation, seekbar
+    // input, and TTS so we don't act on incomplete pageOffsets. flushSaveNow()
+    // still saves using lastKnownOffset (no clobber).
+    private boolean paginationReady = false;
+
+    // Tracks the user's actual reading offset across paginate phases. Set by
+    // paginate(int) and refreshed in displayPage. Used by save and re-paginate
+    // when pageRenderer state isn't trustworthy yet.
+    private int lastKnownOffset = 0;
+
+    // Bumped on every paginate() call so stale main-thread callbacks from a
+    // superseded pagination can detect they're outdated and bail out.
+    private int paginateGeneration = 0;
     private final Handler saveHandler = new Handler(Looper.getMainLooper());
     private final Runnable saveRunnable = () -> executor.execute(() -> {
         int offset = pageRenderer.getPageStartOffset(currentPage);
@@ -85,6 +107,18 @@ public class ReaderActivity extends AppCompatActivity {
 
         progressRepo = new LocalProgressRepository(this);
         nasSyncManager = new NasSyncManager(this);
+        paginationCache = new PaginationCache(this);
+
+        readerPrefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        textSizeSp = readerPrefs.getFloat(PREF_TEXT_SIZE_SP, textSizeSp);
+        textColor  = readerPrefs.getInt(PREF_TEXT_COLOR, textColor);
+        bgColor    = readerPrefs.getInt(PREF_BG_COLOR, bgColor);
+
+        // Paint the saved background BEFORE the first frame so the reader
+        // doesn't flash white while pagination runs.
+        findViewById(R.id.reader_root).setBackgroundColor(bgColor);
+        pageView.setColors(textColor, bgColor);
+
         tts = new TtsController(this, new TtsController.Listener() {
             @Override public void onReady() {}
             @Override public void onDone() {
@@ -169,13 +203,54 @@ public class ReaderActivity extends AppCompatActivity {
         int w = pageView.getWidth() - pageView.getPaddingLeft() - pageView.getPaddingRight();
         int h = pageView.getHeight() - pageView.getPaddingTop() - pageView.getPaddingBottom();
         float textSizePx = spToPx(textSizeSp);
+        int sizeSpInt = (int) textSizeSp;
+
+        lastKnownOffset = startOffset;
+        paginationReady = false;
+        seekBar.setEnabled(false);
+        final int myGen = ++paginateGeneration;
 
         executor.execute(() -> {
+            // 1) Cache hit → skip everything, jump straight to canonical page.
+            int[] cached = paginationCache.load(fileHash, sizeSpInt, w, h);
+            if (cached != null && cached.length > 0) {
+                pageRenderer.setOffsets(cached);
+                int page = pageRenderer.offsetToPage(startOffset);
+                mainHandler.post(() -> {
+                    if (myGen != paginateGeneration) return;
+                    showLoading(false);
+                    seekBar.setMax(Math.max(1, pageRenderer.getPageCount() - 1));
+                    seekBar.setEnabled(true);
+                    paginationReady = true;
+                    displayPage(page);
+                });
+                return;
+            }
+
+            // 2) Cache miss → render first page from a small window so the
+            //    user sees text immediately. Page count / seekbar stay deferred
+            //    until full pagination completes.
+            CharSequence firstPage = PageRenderer.computeFirstPageText(
+                    text, startOffset, textSizePx, w, h);
+            mainHandler.post(() -> {
+                if (myGen != paginateGeneration) return;
+                showLoading(false);
+                pageView.setPage(firstPage, textSizePx, textColor, bgColor);
+                tvPageInfo.setText("…");
+                tvStatusLeft.setText("…");
+                seekBar.setProgress(0);
+            });
+
+            // 3) Full paginate → cache → upgrade UI to canonical page.
             pageRenderer.paginate(text, textSizePx, w, h);
+            int[] offsets = pageRenderer.getOffsetsArray();
+            paginationCache.save(fileHash, sizeSpInt, w, h, offsets);
             int page = pageRenderer.offsetToPage(startOffset);
             mainHandler.post(() -> {
-                showLoading(false);
+                if (myGen != paginateGeneration) return;
                 seekBar.setMax(Math.max(1, pageRenderer.getPageCount() - 1));
+                seekBar.setEnabled(true);
+                paginationReady = true;
                 displayPage(page);
             });
         });
@@ -187,6 +262,7 @@ public class ReaderActivity extends AppCompatActivity {
         if (page < 0) page = 0;
         if (page >= pageRenderer.getPageCount()) page = pageRenderer.getPageCount() - 1;
         currentPage = page;
+        lastKnownOffset = pageRenderer.getPageStartOffset(currentPage);
 
         pageView.setPage(pageRenderer.getPageText(text, currentPage), spToPx(textSizeSp), textColor, bgColor);
 
@@ -204,8 +280,24 @@ public class ReaderActivity extends AppCompatActivity {
         if (currentPage < pageRenderer.getPageCount() - 1) displayPage(currentPage + 1);
     }
 
-    private void previousPage() {
-        if (currentPage > 0) displayPage(currentPage - 1);
+    // ── Page-turn tap coalescing ─────────────────────────────────────────────
+    // Rapid taps accumulate into a single final jump so we don't waste
+    // StaticLayout rebuilds on intermediate pages.
+    private int pendingPageDelta = 0;
+    private final Runnable applyPageDeltaRunnable = () -> {
+        if (pendingPageDelta == 0) return;
+        int target = currentPage + pendingPageDelta;
+        pendingPageDelta = 0;
+        displayPage(target);
+        if (ttsActive) speakCurrentPage();
+    };
+
+    private void requestPageMove(int delta) {
+        if (!paginationReady) return;
+        int max = pageRenderer.getPageCount();
+        pendingPageDelta = Math.max(-max, Math.min(max, pendingPageDelta + delta));
+        mainHandler.removeCallbacks(applyPageDeltaRunnable);
+        mainHandler.postDelayed(applyPageDeltaRunnable, 60);
     }
 
     // ── Save: 5-second debounce ───────────────────────────────────────────────
@@ -222,8 +314,12 @@ public class ReaderActivity extends AppCompatActivity {
      */
     private void flushSaveNow() {
         saveHandler.removeCallbacks(saveRunnable);
-        if (text.isEmpty() || pageRenderer.getPageCount() == 0) return;
-        int offset = pageRenderer.getPageStartOffset(currentPage);
+        if (text.isEmpty()) return;
+        // paginationReady=false (still loading) → fall back to lastKnownOffset
+        // so we still refresh lastRead without clobbering the saved offset to 0.
+        int offset = paginationReady
+                ? pageRenderer.getPageStartOffset(currentPage)
+                : lastKnownOffset;
         progressRepo.save(fileHash, filePath, offset, text.length());
         nasSyncManager.push(fileHash, filePath, offset, text.length());
     }
@@ -232,16 +328,17 @@ public class ReaderActivity extends AppCompatActivity {
 
     private void setupTouchHandler() {
         GestureDetector detector = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
+            // onSingleTapUp (not onSingleTapConfirmed) so taps fire immediately
+            // without waiting for the double-tap timeout — fast consecutive taps
+            // were being swallowed and felt like dropped frames.
             @Override
-            public boolean onSingleTapConfirmed(MotionEvent e) {
+            public boolean onSingleTapUp(MotionEvent e) {
                 float x = e.getX();
                 float w = pageView.getWidth();
                 if (x < w / 3f) {
-                    previousPage();
-                    if (ttsActive) speakCurrentPage();
+                    requestPageMove(-1);
                 } else if (x > 2f * w / 3f) {
-                    nextPage();
-                    if (ttsActive) speakCurrentPage();
+                    requestPageMove(+1);
                 } else {
                     toggleUIBars();
                 }
@@ -287,10 +384,17 @@ public class ReaderActivity extends AppCompatActivity {
             textSizeSp = newSizeSp;
             textColor = newTextColor;
             bgColor = newBgColor;
+            readerPrefs.edit()
+                    .putFloat(PREF_TEXT_SIZE_SP, textSizeSp)
+                    .putInt(PREF_TEXT_COLOR, textColor)
+                    .putInt(PREF_BG_COLOR, bgColor)
+                    .apply();
             if (sizeChanged) {
-                int currentOffset = pageRenderer.getPageStartOffset(currentPage);
+                // Use lastKnownOffset, not getPageStartOffset(currentPage), because
+                // pageRenderer can be in a partial/empty state (returns 0) if the
+                // user changes size while the initial paginate is still running.
                 showLoading(true);
-                pageView.post(() -> paginate(currentOffset));
+                pageView.post(() -> paginate(lastKnownOffset));
             } else {
                 pageView.setPage(pageRenderer.getPageText(text, currentPage), spToPx(textSizeSp), textColor, bgColor);
                 pageView.setColors(textColor, bgColor);
@@ -302,6 +406,7 @@ public class ReaderActivity extends AppCompatActivity {
     // ── TTS ──────────────────────────────────────────────────────────────────
 
     private void toggleTts() {
+        if (!paginationReady) return;
         ttsActive = !ttsActive;
         updateTtsButton();
         if (ttsActive) speakCurrentPage(); else tts.stop();

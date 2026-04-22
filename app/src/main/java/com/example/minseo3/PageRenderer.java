@@ -34,17 +34,7 @@ public class PageRenderer {
             return Collections.unmodifiableList(pageOffsets);
         }
 
-        TextPaint paint = new TextPaint();
-        paint.setAntiAlias(true);
-        paint.setTextSize(textSizePx);
-
-        StaticLayout layout = StaticLayout.Builder
-                .obtain(text, 0, text.length(), paint, widthPx)
-                .setAlignment(Layout.Alignment.ALIGN_NORMAL)
-                .setLineSpacing(LINE_SPACING_EXTRA, LINE_SPACING_MULT)
-                .setIncludePad(false)
-                .build();
-
+        StaticLayout layout = buildLayout(text, textSizePx, widthPx);
         float pageTopY = layout.getLineTop(0);
 
         for (int line = 1; line < layout.getLineCount(); line++) {
@@ -86,5 +76,55 @@ public class PageRenderer {
     public int getPageStartOffset(int pageIndex) {
         if (pageIndex < 0 || pageIndex >= pageOffsets.size()) return 0;
         return pageOffsets.get(pageIndex);
+    }
+
+    public void setOffsets(int[] offsets) {
+        pageOffsets = new ArrayList<>(offsets.length);
+        for (int o : offsets) pageOffsets.add(o);
+    }
+
+    public int[] getOffsetsArray() {
+        int[] arr = new int[pageOffsets.size()];
+        for (int i = 0; i < pageOffsets.size(); i++) arr[i] = pageOffsets.get(i);
+        return arr;
+    }
+
+    /**
+     * Lays out a small text window starting at startOffset to find one page worth
+     * of text. Used to render the first page immediately while the full paginate
+     * runs in the background.
+     */
+    public static CharSequence computeFirstPageText(String text, int startOffset,
+                                                    float textSizePx, int widthPx, int heightPx) {
+        if (text == null || text.isEmpty() || startOffset >= text.length()
+                || widthPx <= 0 || heightPx <= 0) return "";
+        int windowEnd = Math.min(text.length(), startOffset + 20_000);
+        String window = text.substring(startOffset, windowEnd);
+
+        StaticLayout layout = buildLayout(window, textSizePx, widthPx);
+        float pageTopY = layout.getLineTop(0);
+        int endLineExclusive = layout.getLineCount();
+        for (int line = 1; line < layout.getLineCount(); line++) {
+            if (layout.getLineBottom(line) - pageTopY > heightPx) {
+                endLineExclusive = line;
+                break;
+            }
+        }
+        int endInWindow = (endLineExclusive < layout.getLineCount())
+                ? layout.getLineStart(endLineExclusive)
+                : window.length();
+        return window.substring(0, endInWindow);
+    }
+
+    private static StaticLayout buildLayout(CharSequence text, float textSizePx, int widthPx) {
+        TextPaint paint = new TextPaint();
+        paint.setAntiAlias(true);
+        paint.setTextSize(textSizePx);
+        return StaticLayout.Builder
+                .obtain(text, 0, text.length(), paint, widthPx)
+                .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                .setLineSpacing(LINE_SPACING_EXTRA, LINE_SPACING_MULT)
+                .setIncludePad(false)
+                .build();
     }
 }
