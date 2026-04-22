@@ -98,6 +98,11 @@ public class ReaderActivity extends AppCompatActivity {
         textColor  = readerPrefs.getInt(PREF_TEXT_COLOR, textColor);
         bgColor    = readerPrefs.getInt(PREF_BG_COLOR, bgColor);
 
+        // Paint the saved background BEFORE the first frame so the reader
+        // doesn't flash white while pagination runs.
+        findViewById(R.id.reader_root).setBackgroundColor(bgColor);
+        pageView.setColors(textColor, bgColor);
+
         tts = new TtsController(this, new TtsController.Listener() {
             @Override public void onReady() {}
             @Override public void onDone() {

@@ -7,6 +7,8 @@ import android.view.ViewGroup;
 import android.widget.SeekBar;
 import android.widget.TextView;
 
+import androidx.core.content.ContextCompat;
+
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment;
 
 public class SettingsBottomSheet extends BottomSheetDialogFragment {
@@ -34,6 +36,7 @@ public class SettingsBottomSheet extends BottomSheetDialogFragment {
     private float currentSizeSp;
     private int currentTextColor;
     private int currentBgColor;
+    private View[] themeButtons;
 
     public static SettingsBottomSheet newInstance(float sizeSp, int textColor, int bgColor) {
         SettingsBottomSheet f = new SettingsBottomSheet();
@@ -78,17 +81,33 @@ public class SettingsBottomSheet extends BottomSheetDialogFragment {
                 R.id.btn_theme_white, R.id.btn_theme_sepia,
                 R.id.btn_theme_gray, R.id.btn_theme_dark, R.id.btn_theme_black
         };
+        themeButtons = new View[themeButtonIds.length];
         for (int i = 0; i < themeButtonIds.length; i++) {
             final int idx = i;
             View btn = v.findViewById(themeButtonIds[i]);
+            themeButtons[i] = btn;
             if (btn != null) btn.setOnClickListener(view -> {
                 currentBgColor = THEMES[idx][0];
                 currentTextColor = THEMES[idx][1];
+                updateSelectedThemeIndicator();
                 notifyListener();
             });
         }
+        updateSelectedThemeIndicator();
 
         return v;
+    }
+
+    private void updateSelectedThemeIndicator() {
+        if (themeButtons == null) return;
+        for (int i = 0; i < themeButtons.length; i++) {
+            View btn = themeButtons[i];
+            if (btn == null) continue;
+            boolean selected = THEMES[i][0] == currentBgColor;
+            btn.setForeground(selected
+                    ? ContextCompat.getDrawable(requireContext(), R.drawable.theme_circle_selected_ring)
+                    : null);
+        }
     }
 
     private void notifyListener() {
