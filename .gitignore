@@ -26,3 +26,10 @@ keystore.properties
 # OS
 .DS_Store
 Thumbs.db
+
+# QA / debug screenshots
+screen.png
+*.screen.png
+
+# Claude Code session artifacts
+.claude/
