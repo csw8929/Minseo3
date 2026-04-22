@@ -1,5 +1,6 @@
 package com.example.minseo3;
 
+import android.graphics.drawable.Drawable;
 import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -37,6 +38,7 @@ public class SettingsBottomSheet extends BottomSheetDialogFragment {
     private int currentTextColor;
     private int currentBgColor;
     private View[] themeButtons;
+    private Drawable selectedRing;
 
     public static SettingsBottomSheet newInstance(float sizeSp, int textColor, int bgColor) {
         SettingsBottomSheet f = new SettingsBottomSheet();
@@ -81,6 +83,7 @@ public class SettingsBottomSheet extends BottomSheetDialogFragment {
                 R.id.btn_theme_white, R.id.btn_theme_sepia,
                 R.id.btn_theme_gray, R.id.btn_theme_dark, R.id.btn_theme_black
         };
+        selectedRing = ContextCompat.getDrawable(requireContext(), R.drawable.theme_circle_selected_ring);
         themeButtons = new View[themeButtonIds.length];
         for (int i = 0; i < themeButtonIds.length; i++) {
             final int idx = i;
@@ -104,9 +107,7 @@ public class SettingsBottomSheet extends BottomSheetDialogFragment {
             View btn = themeButtons[i];
             if (btn == null) continue;
             boolean selected = THEMES[i][0] == currentBgColor;
-            btn.setForeground(selected
-                    ? ContextCompat.getDrawable(requireContext(), R.drawable.theme_circle_selected_ring)
-                    : null);
+            btn.setForeground(selected ? selectedRing : null);
         }
     }
 

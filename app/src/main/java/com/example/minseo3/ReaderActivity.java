@@ -67,8 +67,18 @@ public class ReaderActivity extends AppCompatActivity {
     private PaginationCache paginationCache;
 
     // False while the full paginate is running. Blocks page navigation, seekbar
-    // input, TTS, and saves so we don't act on incomplete pageOffsets.
+    // input, and TTS so we don't act on incomplete pageOffsets. flushSaveNow()
+    // still saves using lastKnownOffset (no clobber).
     private boolean paginationReady = false;
+
+    // Tracks the user's actual reading offset across paginate phases. Set by
+    // paginate(int) and refreshed in displayPage. Used by save and re-paginate
+    // when pageRenderer state isn't trustworthy yet.
+    private int lastKnownOffset = 0;
+
+    // Bumped on every paginate() call so stale main-thread callbacks from a
+    // superseded pagination can detect they're outdated and bail out.
+    private int paginateGeneration = 0;
     private final Handler saveHandler = new Handler(Looper.getMainLooper());
     private final Runnable saveRunnable = () -> executor.execute(() -> {
         int offset = pageRenderer.getPageStartOffset(currentPage);
@@ -195,8 +205,10 @@ public class ReaderActivity extends AppCompatActivity {
         float textSizePx = spToPx(textSizeSp);
         int sizeSpInt = (int) textSizeSp;
 
+        lastKnownOffset = startOffset;
         paginationReady = false;
         seekBar.setEnabled(false);
+        final int myGen = ++paginateGeneration;
 
         executor.execute(() -> {
             // 1) Cache hit → skip everything, jump straight to canonical page.
@@ -205,6 +217,7 @@ public class ReaderActivity extends AppCompatActivity {
                 pageRenderer.setOffsets(cached);
                 int page = pageRenderer.offsetToPage(startOffset);
                 mainHandler.post(() -> {
+                    if (myGen != paginateGeneration) return;
                     showLoading(false);
                     seekBar.setMax(Math.max(1, pageRenderer.getPageCount() - 1));
                     seekBar.setEnabled(true);
@@ -220,6 +233,7 @@ public class ReaderActivity extends AppCompatActivity {
             CharSequence firstPage = PageRenderer.computeFirstPageText(
                     text, startOffset, textSizePx, w, h);
             mainHandler.post(() -> {
+                if (myGen != paginateGeneration) return;
                 showLoading(false);
                 pageView.setPage(firstPage, textSizePx, textColor, bgColor);
                 tvPageInfo.setText("…");
@@ -233,6 +247,7 @@ public class ReaderActivity extends AppCompatActivity {
             paginationCache.save(fileHash, sizeSpInt, w, h, offsets);
             int page = pageRenderer.offsetToPage(startOffset);
             mainHandler.post(() -> {
+                if (myGen != paginateGeneration) return;
                 seekBar.setMax(Math.max(1, pageRenderer.getPageCount() - 1));
                 seekBar.setEnabled(true);
                 paginationReady = true;
@@ -247,6 +262,7 @@ public class ReaderActivity extends AppCompatActivity {
         if (page < 0) page = 0;
         if (page >= pageRenderer.getPageCount()) page = pageRenderer.getPageCount() - 1;
         currentPage = page;
+        lastKnownOffset = pageRenderer.getPageStartOffset(currentPage);
 
         pageView.setPage(pageRenderer.getPageText(text, currentPage), spToPx(textSizeSp), textColor, bgColor);
 
@@ -278,7 +294,8 @@ public class ReaderActivity extends AppCompatActivity {
 
     private void requestPageMove(int delta) {
         if (!paginationReady) return;
-        pendingPageDelta += delta;
+        int max = pageRenderer.getPageCount();
+        pendingPageDelta = Math.max(-max, Math.min(max, pendingPageDelta + delta));
         mainHandler.removeCallbacks(applyPageDeltaRunnable);
         mainHandler.postDelayed(applyPageDeltaRunnable, 60);
     }
@@ -297,9 +314,12 @@ public class ReaderActivity extends AppCompatActivity {
      */
     private void flushSaveNow() {
         saveHandler.removeCallbacks(saveRunnable);
-        if (!paginationReady) return; // partial state — would clobber saved offset with 0
-        if (text.isEmpty() || pageRenderer.getPageCount() == 0) return;
-        int offset = pageRenderer.getPageStartOffset(currentPage);
+        if (text.isEmpty()) return;
+        // paginationReady=false (still loading) → fall back to lastKnownOffset
+        // so we still refresh lastRead without clobbering the saved offset to 0.
+        int offset = paginationReady
+                ? pageRenderer.getPageStartOffset(currentPage)
+                : lastKnownOffset;
         progressRepo.save(fileHash, filePath, offset, text.length());
         nasSyncManager.push(fileHash, filePath, offset, text.length());
     }
@@ -370,9 +390,11 @@ public class ReaderActivity extends AppCompatActivity {
                     .putInt(PREF_BG_COLOR, bgColor)
                     .apply();
             if (sizeChanged) {
-                int currentOffset = pageRenderer.getPageStartOffset(currentPage);
+                // Use lastKnownOffset, not getPageStartOffset(currentPage), because
+                // pageRenderer can be in a partial/empty state (returns 0) if the
+                // user changes size while the initial paginate is still running.
                 showLoading(true);
-                pageView.post(() -> paginate(currentOffset));
+                pageView.post(() -> paginate(lastKnownOffset));
             } else {
                 pageView.setPage(pageRenderer.getPageText(text, currentPage), spToPx(textSizeSp), textColor, bgColor);
                 pageView.setColors(textColor, bgColor);
