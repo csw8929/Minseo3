@@ -1,10 +1,8 @@
 package com.example.minseo3;
 
 import android.app.Activity;
-import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
-import android.content.res.Configuration;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -44,33 +42,14 @@ public class ReaderActivity extends AppCompatActivity {
     /** true 면 NAS 와의 충돌 해결을 건너뜀 — NAS 탭에서 진입한 경우 사용. */
     public static final String EXTRA_SKIP_CONFLICT_RESOLVE = "skip_conflict_resolve";
 
-    /** 진입 애니메이션 모드. {@link #ANIM_AUTO} (기본) / {@link #ANIM_HORIZONTAL}. */
-    public static final String EXTRA_ENTER_ANIMATION = "enter_anim_mode";
-    /** 기기 orientation 에 맞춰 자동 선택 — 세로: 아래에서, 가로: 오른쪽에서. */
-    public static final String ANIM_AUTO = "auto";
-    /** 항상 오른쪽에서 슬라이드 (탭 스와이프 느낌). 즐겨찾기→리더 스와이프 진입 시. */
-    public static final String ANIM_HORIZONTAL = "horizontal";
-
-    /** 리스트→리더 진입의 표준 경로 — 탭으로 여는 모든 경로가 이 헬퍼를 사용.
-     *  기본 애니는 orientation-aware (ANIM_AUTO). 호출자가 intent 에
-     *  {@link #EXTRA_ENTER_ANIMATION} 를 명시하면 그 값을 따름. */
+    /**
+     * 리더 진입의 표준 경로 — 모든 호출자 (내 책 탭 / 즐겨찾기→리더 스와이프 /
+     * 내 북마크 / 다른 단말 진행) 가 이 헬퍼 사용. 애니메이션은 **항상 horizontal
+     * slide** (오른쪽에서 들어옴). 탭 스와이프와 같은 축 감각으로 통일.
+     */
     public static void startReader(Activity from, Intent intent) {
-        String mode = intent.getStringExtra(EXTRA_ENTER_ANIMATION);
-        if (mode == null) mode = ANIM_AUTO;
         from.startActivity(intent);
-        applyEnterAnimation(from, mode);
-    }
-
-    private static void applyEnterAnimation(Activity from, String mode) {
-        if (ANIM_HORIZONTAL.equals(mode)) {
-            from.overridePendingTransition(R.anim.reader_enter_from_right, R.anim.reader_exit_to_left);
-            return;
-        }
-        boolean landscape = from.getResources().getConfiguration().orientation
-                == Configuration.ORIENTATION_LANDSCAPE;
-        from.overridePendingTransition(
-                landscape ? R.anim.reader_enter_from_right : R.anim.reader_enter_from_bottom,
-                landscape ? R.anim.reader_exit_to_left    : R.anim.reader_exit_to_top);
+        from.overridePendingTransition(R.anim.reader_enter_from_right, R.anim.reader_exit_to_left);
     }
 
     /** Fragment 용 — requireActivity() 통해 호출. */
@@ -180,9 +159,6 @@ public class ReaderActivity extends AppCompatActivity {
     private boolean skipConflictResolve = false;
     private boolean conflictResolved = false;
 
-    /** 진입 애니메이션 모드 — finish() 에서 반대 방향 적용에 사용. */
-    private String enterAnimMode = ANIM_AUTO;
-
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -234,8 +210,6 @@ public class ReaderActivity extends AppCompatActivity {
         filePath = getIntent().getStringExtra(EXTRA_FILE_PATH);
         int startOffset = getIntent().getIntExtra(EXTRA_CHAR_OFFSET, 0);
         skipConflictResolve = getIntent().getBooleanExtra(EXTRA_SKIP_CONFLICT_RESOLVE, false);
-        String mode = getIntent().getStringExtra(EXTRA_ENTER_ANIMATION);
-        enterAnimMode = (mode != null) ? mode : ANIM_AUTO;
 
         if (filePath == null) { finish(); return; }
 
@@ -673,21 +647,12 @@ public class ReaderActivity extends AppCompatActivity {
         executor.shutdown();
     }
 
-    /** 들어올 때 애니와 반대 방향으로 나감.
-     *  - horizontal 모드 (즐겨찾기에서 스와이프로 진입) : 오른쪽으로 슬라이드.
-     *  - auto 모드 : 세로 → 아래로, 가로 → 오른쪽으로. */
+    /** 들어올 때의 반대 방향 — 리스트가 왼쪽에서 들어오고, 리더는 오른쪽으로 나감.
+     *  진입이 horizontal 이었으므로 대칭으로 horizontal 이탈. */
     @Override
     public void finish() {
         super.finish();
-        if (ANIM_HORIZONTAL.equals(enterAnimMode)) {
-            overridePendingTransition(R.anim.reader_enter_from_left, R.anim.reader_exit_to_right);
-            return;
-        }
-        boolean landscape = getResources().getConfiguration().orientation
-                == Configuration.ORIENTATION_LANDSCAPE;
-        overridePendingTransition(
-                landscape ? R.anim.reader_enter_from_left  : R.anim.reader_enter_from_top,
-                landscape ? R.anim.reader_exit_to_right    : R.anim.reader_exit_to_bottom);
+        overridePendingTransition(R.anim.reader_enter_from_left, R.anim.reader_exit_to_right);
     }
 
     private float spToPx(float sp) {
