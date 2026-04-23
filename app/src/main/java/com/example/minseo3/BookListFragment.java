@@ -106,6 +106,9 @@ public class BookListFragment extends Fragment {
         Intent intent = new Intent(requireContext(), ReaderActivity.class);
         intent.putExtra(ReaderActivity.EXTRA_FILE_PATH, item.file.getAbsolutePath());
         if (item.entry != null) intent.putExtra(ReaderActivity.EXTRA_CHAR_OFFSET, item.entry.charOffset);
+        if (requireActivity() instanceof BookListActivity) {
+            ((BookListActivity) requireActivity()).noteOpenedBook(item.file.getAbsolutePath());
+        }
         ReaderActivity.startReaderFromFragment(this, intent);
     }
 

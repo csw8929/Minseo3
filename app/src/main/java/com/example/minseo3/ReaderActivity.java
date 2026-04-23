@@ -493,9 +493,6 @@ public class ReaderActivity extends AppCompatActivity {
 
     private void setupTouchHandler() {
         GestureDetector detector = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
-            // onSingleTapUp (not onSingleTapConfirmed) so taps fire immediately
-            // without waiting for the double-tap timeout — fast consecutive taps
-            // were being swallowed and felt like dropped frames.
             @Override
             public boolean onSingleTapUp(MotionEvent e) {
                 float x = e.getX();
@@ -508,6 +505,22 @@ public class ReaderActivity extends AppCompatActivity {
                     toggleUIBars();
                 }
                 return true;
+            }
+
+            /**
+             * 리더 L→R 스와이프 → finish() 로 리스트 복귀 (item 2).
+             * 가로 우세 + 속도/거리 임계값을 넘어야 페이지 탭과 혼동되지 않음.
+             */
+            @Override
+            public boolean onFling(MotionEvent e1, MotionEvent e2, float vx, float vy) {
+                if (e1 == null || e2 == null) return false;
+                float dx = e2.getX() - e1.getX();
+                float dy = Math.abs(e2.getY() - e1.getY());
+                if (dx > 200 && Math.abs(dx) > dy * 2 && Math.abs(vx) > 800) {
+                    finish();
+                    return true;
+                }
+                return false;
             }
         });
         pageView.setOnTouchListener((v, event) -> {
