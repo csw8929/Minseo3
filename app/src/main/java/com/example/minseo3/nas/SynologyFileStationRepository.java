@@ -10,6 +10,11 @@ import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
+import static com.example.minseo3.nas.SynologyDsmHelper.ERROR_NO_SUCH_FILE;
+import static com.example.minseo3.nas.SynologyDsmHelper.errorCode;
+import static com.example.minseo3.nas.SynologyDsmHelper.normalizeDir;
+import static com.example.minseo3.nas.SynologyDsmHelper.withSidAndRetry;
+
 /**
  * Synology FileStation 에 pos_*.json 을 읽고 쓰는 RemoteProgressRepository 구현.
  *
@@ -17,25 +22,16 @@ import java.util.Map;
  * 백그라운드로 감싸는 것을 전제로 한다.
  *
  * 주의: {@link DsAuth#init} 이 이미 호출된 상태여야 한다.
+ *
+ * SID 재시도 / 에러 코드 / 경로 정규화는 {@link SynologyDsmHelper} 로 추출되어
+ * {@link SynologyBookmarksRepository} 와 공유한다.
  */
 public final class SynologyFileStationRepository implements RemoteProgressRepository {
 
     private static final String TAG = "NasSync";
 
-    /** SID 만료/무효로 간주해 reLogin 후 1회 재시도하는 DSM 에러 코드. */
-    private static final int[] SID_EXPIRY_CODES = {105, 106, 107, 119};
-
-    /** FileStation.List 가 디렉토리 부재 시 내려주는 에러 코드. */
-    private static final int ERROR_NO_SUCH_FILE = 408;
-
     private final String deviceId;
 
-    /**
-     * @param deviceId 기기 식별자 (ANDROID_ID 기반, {@code NasSyncManager} 가 생성)
-     *
-     * pos_*.json 을 둘 디렉토리는 {@link DsAuth#cfgPosDir} 에서 런타임에 읽는다
-     * (사용자가 NAS 설정 화면에서 path 를 바꾸면 즉시 반영).
-     */
     public SynologyFileStationRepository(String deviceId) {
         this.deviceId = deviceId;
     }
@@ -60,7 +56,7 @@ public final class SynologyFileStationRepository implements RemoteProgressReposi
                 JSONObject json = new JSONObject(resp);
                 if (!json.optBoolean("success", false)) {
                     int code = errorCode(json);
-                    throw new DsmException(code, "upload failed");
+                    throw new SynologyDsmHelper.DsmException(code, "upload failed");
                 }
                 return null;
             });
@@ -93,7 +89,7 @@ public final class SynologyFileStationRepository implements RemoteProgressReposi
                     if (!envelope.optBoolean("success", false)) {
                         int code = errorCode(envelope);
                         if (code == ERROR_NO_SUCH_FILE) return null;
-                        throw new DsmException(code, "download failed");
+                        throw new SynologyDsmHelper.DsmException(code, "download failed");
                     }
                 }
                 JSONObject json = new JSONObject(body);
@@ -121,7 +117,7 @@ public final class SynologyFileStationRepository implements RemoteProgressReposi
                 if (!envelope.optBoolean("success", false)) {
                     int code = errorCode(envelope);
                     if (code == ERROR_NO_SUCH_FILE) return new LinkedHashMap<>();
-                    throw new DsmException(code, "list failed");
+                    throw new SynologyDsmHelper.DsmException(code, "list failed");
                 }
 
                 JSONArray files = envelope.getJSONObject("data").optJSONArray("files");
@@ -149,6 +145,36 @@ public final class SynologyFileStationRepository implements RemoteProgressReposi
         }
     }
 
+    // ── delete ──────────────────────────────────────────────────────────────
+
+    @Override
+    public void delete(String fileHash, Callback<Void> cb) {
+        String path = resolvePosDir() + "/pos_" + fileHash + ".json";
+        try {
+            withSidAndRetry(sid -> {
+                String url = DsAuth.apiBase() + "/webapi/entry.cgi"
+                        + "?api=SYNO.FileStation.Delete&version=2&method=start"
+                        + "&path=" + URLEncoder.encode(path, "UTF-8")
+                        + "&accurate_progress=false&recursive=false"
+                        + "&_sid=" + sid;
+                String body = DsHttp.httpGet(url);
+                // HTML 404 또는 SUCCESS — 파일이 없어도 멱등 성공 취급.
+                if (body.startsWith("<")) return null;
+                JSONObject envelope = new JSONObject(body);
+                if (!envelope.optBoolean("success", false)) {
+                    int code = errorCode(envelope);
+                    if (code == ERROR_NO_SUCH_FILE) return null; // 이미 없음 — OK
+                    throw new SynologyDsmHelper.DsmException(code, "delete failed");
+                }
+                return null;
+            });
+            cb.onResult(null);
+        } catch (Exception e) {
+            Log.w(TAG, "delete failed (" + fileHash + "): " + e.getMessage());
+            cb.onError(e.getMessage());
+        }
+    }
+
     /** fetchAll 내부 루프 — SID 이미 있음, 에러 격리 호출 단위. */
     private RemotePosition downloadPos(String fullPath, String sid) throws Exception {
         String url = DsAuth.apiBase() + "/webapi/entry.cgi"
@@ -163,46 +189,5 @@ public final class SynologyFileStationRepository implements RemoteProgressReposi
             if (!envelope.optBoolean("success", false)) return null;
         }
         return RemotePosition.fromJson(new JSONObject(body));
-    }
-
-    // ── SID expiry retry wrapper ─────────────────────────────────────────────
-
-    private interface SidCall<T> { T call(String sid) throws Exception; }
-
-    private <T> T withSidAndRetry(SidCall<T> call) throws Exception {
-        String sid = DsAuth.ensureSidSync();
-        if (sid == null) throw new Exception("NAS 로그인 실패");
-        try {
-            return call.call(sid);
-        } catch (DsmException e) {
-            if (!isSidExpiry(e.code)) throw e;
-            Log.i(TAG, "SID 만료 감지 (code=" + e.code + ") → reLoginSync 재시도");
-            String newSid = DsAuth.reLoginSync();
-            if (newSid == null) throw new Exception("NAS 재로그인 실패");
-            return call.call(newSid);
-        }
-    }
-
-    private static boolean isSidExpiry(int code) {
-        for (int c : SID_EXPIRY_CODES) if (c == code) return true;
-        return false;
-    }
-
-    private static int errorCode(JSONObject envelope) {
-        JSONObject err = envelope.optJSONObject("error");
-        return err == null ? -1 : err.optInt("code", -1);
-    }
-
-    private static String normalizeDir(String dir) {
-        if (dir == null || dir.isEmpty()) return "/";
-        String d = dir.trim();
-        if (d.endsWith("/") && d.length() > 1) d = d.substring(0, d.length() - 1);
-        return d;
-    }
-
-    /** DSM envelope 의 에러 코드를 실어 상위에서 만료 감지에 쓰게 한다. */
-    private static final class DsmException extends Exception {
-        final int code;
-        DsmException(int code, String msg) { super(msg + " (code=" + code + ")"); this.code = code; }
     }
 }
