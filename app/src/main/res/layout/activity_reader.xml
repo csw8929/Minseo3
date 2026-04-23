@@ -60,8 +60,9 @@
                 android:format24Hour="HH:mm" />
         </LinearLayout>
 
-        <!-- Menu row: list / settings / NAS -->
+        <!-- Menu row: 설정 / NAS — hideable, status row above stays visible -->
         <LinearLayout
+            android:id="@+id/top_menu_row"
             android:layout_width="match_parent"
             android:layout_height="48dp"
             android:orientation="horizontal">

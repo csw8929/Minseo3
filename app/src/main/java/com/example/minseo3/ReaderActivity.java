@@ -46,7 +46,7 @@ public class ReaderActivity extends AppCompatActivity {
     private TextView tvPageInfo;
     private TextView tvStatusLeft;
     private SeekBar seekBar;
-    private View topBar, bottomBar;
+    private View topBar, bottomBar, topMenuRow;
     private ImageButton btnBookmarks, btnTts, btnBack;
 
     // ── State
@@ -54,7 +54,14 @@ public class ReaderActivity extends AppCompatActivity {
     private String fileHash = "";
     private String filePath = "";
     private int currentPage = 0;
-    private boolean uiVisible = true;
+    /** 상단 메뉴 + 하단바 표시 상태. 기본은 false (읽기 몰입용 최소 UI).
+     *  상단 status strip (page % + 시계) 은 항상 표시. */
+    private boolean uiVisible = false;
+
+    private static final long UI_AUTO_HIDE_DELAY_MS = 3000L;
+    private static final long UI_FADE_DURATION_MS = 200L;
+    private final Handler uiHideHandler = new Handler(Looper.getMainLooper());
+    private final Runnable uiHideRunnable = this::hideUIBars;
 
     // ── Settings (persisted in SharedPreferences "reader_prefs")
     private static final String PREFS_NAME = "reader_prefs";
@@ -148,7 +155,12 @@ public class ReaderActivity extends AppCompatActivity {
         tvStatusLeft  = findViewById(R.id.tv_status_left);
         seekBar       = findViewById(R.id.seek_bar);
         topBar        = findViewById(R.id.top_bar);
+        topMenuRow    = findViewById(R.id.top_menu_row);
         bottomBar     = findViewById(R.id.bottom_bar);
+
+        // 기본 최소 UI — status strip 만 보임, 메뉴 행 + 하단바 숨김.
+        topMenuRow.setVisibility(View.GONE);
+        bottomBar.setVisibility(View.GONE);
         btnBookmarks  = findViewById(R.id.btn_bookmarks);
         btnTts        = findViewById(R.id.btn_tts);
         btnBack       = findViewById(R.id.btn_back);
@@ -489,11 +501,49 @@ public class ReaderActivity extends AppCompatActivity {
 
     // ── UI toggle ────────────────────────────────────────────────────────────
 
+    /**
+     * 가운데 탭 → 현재 상태 토글.
+     * 숨김 상태면 fade-in + 3초 후 auto-hide. 표시 상태면 즉시 fade-out.
+     */
     private void toggleUIBars() {
-        uiVisible = !uiVisible;
-        int vis = uiVisible ? View.VISIBLE : View.GONE;
-        topBar.setVisibility(vis);
-        bottomBar.setVisibility(vis);
+        if (uiVisible) hideUIBars();
+        else showUIBarsWithAutoHide();
+    }
+
+    private void showUIBarsWithAutoHide() {
+        uiVisible = true;
+        uiHideHandler.removeCallbacks(uiHideRunnable);
+        fadeInToVisible(topMenuRow);
+        fadeInToVisible(bottomBar);
+        uiHideHandler.postDelayed(uiHideRunnable, UI_AUTO_HIDE_DELAY_MS);
+    }
+
+    private void hideUIBars() {
+        uiVisible = false;
+        uiHideHandler.removeCallbacks(uiHideRunnable);
+        fadeOutToGone(topMenuRow);
+        fadeOutToGone(bottomBar);
+    }
+
+    private void fadeInToVisible(View v) {
+        if (v == null) return;
+        v.animate().cancel();
+        v.setAlpha(0f);
+        v.setVisibility(View.VISIBLE);
+        v.animate().alpha(1f).setDuration(UI_FADE_DURATION_MS).start();
+    }
+
+    private void fadeOutToGone(View v) {
+        if (v == null) return;
+        v.animate().cancel();
+        v.animate()
+                .alpha(0f)
+                .setDuration(UI_FADE_DURATION_MS)
+                .withEndAction(() -> {
+                    v.setVisibility(View.GONE);
+                    v.setAlpha(1f); // reset for next show
+                })
+                .start();
     }
 
     private void showLoading(boolean show) {
