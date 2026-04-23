@@ -43,17 +43,27 @@ public class ReaderActivity extends AppCompatActivity {
     public static final String EXTRA_CHAR_OFFSET = "char_offset";
     /** true 면 NAS 와의 충돌 해결을 건너뜀 — NAS 탭에서 진입한 경우 사용. */
     public static final String EXTRA_SKIP_CONFLICT_RESOLVE = "skip_conflict_resolve";
-    /** true 면 Activity 전환 애니메이션을 생략 (예: 스와이프 R→L 로 이전 책 재오픈). */
-    public static final String EXTRA_NO_ANIMATION = "no_animation";
 
-    /**
-     * 리스트→리더 진입의 표준 경로. 세로 모드에선 위아래, 가로 모드에선 좌우 슬라이드.
-     * 기존 startActivity 호출을 모두 이 헬퍼로 교체해 방향 일관성 유지.
-     */
+    /** 진입 애니메이션 모드. {@link #ANIM_AUTO} (기본) / {@link #ANIM_HORIZONTAL}. */
+    public static final String EXTRA_ENTER_ANIMATION = "enter_anim_mode";
+    /** 기기 orientation 에 맞춰 자동 선택 — 세로: 아래에서, 가로: 오른쪽에서. */
+    public static final String ANIM_AUTO = "auto";
+    /** 항상 오른쪽에서 슬라이드 (탭 스와이프 느낌). 즐겨찾기→리더 스와이프 진입 시. */
+    public static final String ANIM_HORIZONTAL = "horizontal";
+
+    /** 리스트→리더 진입의 표준 경로 — 탭으로 여는 모든 경로가 이 헬퍼를 사용.
+     *  기본 애니는 orientation-aware (ANIM_AUTO). 호출자가 intent 에
+     *  {@link #EXTRA_ENTER_ANIMATION} 를 명시하면 그 값을 따름. */
     public static void startReader(Activity from, Intent intent) {
+        String mode = intent.getStringExtra(EXTRA_ENTER_ANIMATION);
+        if (mode == null) mode = ANIM_AUTO;
         from.startActivity(intent);
-        if (intent.getBooleanExtra(EXTRA_NO_ANIMATION, false)) {
-            from.overridePendingTransition(0, 0);
+        applyEnterAnimation(from, mode);
+    }
+
+    private static void applyEnterAnimation(Activity from, String mode) {
+        if (ANIM_HORIZONTAL.equals(mode)) {
+            from.overridePendingTransition(R.anim.reader_enter_from_right, R.anim.reader_exit_to_left);
             return;
         }
         boolean landscape = from.getResources().getConfiguration().orientation
@@ -170,6 +180,9 @@ public class ReaderActivity extends AppCompatActivity {
     private boolean skipConflictResolve = false;
     private boolean conflictResolved = false;
 
+    /** 진입 애니메이션 모드 — finish() 에서 반대 방향 적용에 사용. */
+    private String enterAnimMode = ANIM_AUTO;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -221,6 +234,8 @@ public class ReaderActivity extends AppCompatActivity {
         filePath = getIntent().getStringExtra(EXTRA_FILE_PATH);
         int startOffset = getIntent().getIntExtra(EXTRA_CHAR_OFFSET, 0);
         skipConflictResolve = getIntent().getBooleanExtra(EXTRA_SKIP_CONFLICT_RESOLVE, false);
+        String mode = getIntent().getStringExtra(EXTRA_ENTER_ANIMATION);
+        enterAnimMode = (mode != null) ? mode : ANIM_AUTO;
 
         if (filePath == null) { finish(); return; }
 
@@ -655,10 +670,16 @@ public class ReaderActivity extends AppCompatActivity {
         executor.shutdown();
     }
 
-    /** 들어올 때 애니와 반대 방향으로 나감 — 세로: 아래로 / 가로: 오른쪽으로. */
+    /** 들어올 때 애니와 반대 방향으로 나감.
+     *  - horizontal 모드 (즐겨찾기에서 스와이프로 진입) : 오른쪽으로 슬라이드.
+     *  - auto 모드 : 세로 → 아래로, 가로 → 오른쪽으로. */
     @Override
     public void finish() {
         super.finish();
+        if (ANIM_HORIZONTAL.equals(enterAnimMode)) {
+            overridePendingTransition(R.anim.reader_enter_from_left, R.anim.reader_exit_to_right);
+            return;
+        }
         boolean landscape = getResources().getConfiguration().orientation
                 == Configuration.ORIENTATION_LANDSCAPE;
         overridePendingTransition(

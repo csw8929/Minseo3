@@ -8,8 +8,6 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.provider.Settings;
-import android.view.GestureDetector;
-import android.view.MotionEvent;
 
 import androidx.activity.OnBackPressedCallback;
 import androidx.annotation.NonNull;
@@ -21,28 +19,36 @@ import androidx.viewpager2.adapter.FragmentStateAdapter;
 import androidx.viewpager2.widget.ViewPager2;
 
 import com.google.android.material.tabs.TabLayout;
-import com.google.android.material.tabs.TabLayoutMediator;
 
 import java.io.File;
 
 /**
- * 두 탭을 품은 메인 목록 화면 — "내 책" (로컬, 중첩 폴더 지원) + "즐겨찾기"
- * (내 북마크 + 다른 단말 읽기 기록). 저장소 권한 로직은 Activity 레벨에서 유지하고,
- * 권한 획득 시 BookListFragment 에 reload() 호출. 뒤로가기는 "내 책" 탭의 폴더
- * 스택을 우선 소비한 뒤 기본 동작으로 빠짐.
+ * 메인 목록 화면 — ViewPager2 구조:
+ *   position 0  "내 책"       : BookListFragment
+ *   position 1  "즐겨찾기"     : FavoritesFragment
+ *   position 2  (탭 숨김)     : ReaderLaunchFragment — 즐겨찾기에서 R→L 스와이프
+ *                               시 드러나는 페이지. onPageSelected 에서 처리:
+ *                                 - 직전에 읽은 책 있음 → 리더 horizontal 오픈 + 1 로 복귀
+ *                                 - 없음 → 빈 화면 300ms 보여주고 1 로 자동 스냅백.
+ *
+ * 탭바는 0, 1 두 개만 표시. 3번째는 스와이프로만 접근. 뒤로가기는 "내 책" 탭의
+ * 폴더 스택을 우선 소비한 뒤 기본 동작으로 빠짐.
  */
 public class BookListActivity extends AppCompatActivity {
 
     private static final int REQ_STORAGE = 100;
 
     private ViewPager2 viewPager;
+    private TabLayout tabLayout;
     private PagerAdapter pagerAdapter;
-    private GestureDetector swipeDetector;
 
-    /** 리스트 R→L 스와이프 시 재오픈할 "직전에 읽던 책" 경로.
-     *  앱 시작 직후엔 null (스와이프 해도 no-op). 리더 진입 시 세팅됨.
-     *  세션 내 메모리 (프로세스 종료 시 소실) — 사용자 의도에 맞춤. */
+    /** 리더 진입 시 세팅되는 세션 메모리 — 즐겨찾기→리더 스와이프 대상.
+     *  앱 시작 직후엔 null (스와이프 해도 빈 화면만 보였다가 복귀). */
     private String lastOpenedBookPath;
+
+    /** 리더에서 돌아왔을 때 즐겨찾기 탭으로 복귀시키기 위한 플래그
+     *  (position 2 에서 reader 띄운 뒤 onResume 에서 1 로 복귀). */
+    private boolean pendingResetToFavorites = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -51,17 +57,36 @@ public class BookListActivity extends AppCompatActivity {
         setTitle("소설 목록");
 
         // NasSyncManager 를 앱 시작 시점에 한 번 구성해 seeding / LAN top-up 이 실행되도록 함.
-        // (이후 Fragment 들이 각자 새 인스턴스를 만들어도 prefs 는 같으니 DsAuth.init 이 idempotent 하게 동작)
         new NasSyncManager(this);
 
         viewPager = findViewById(R.id.view_pager);
-        TabLayout tabLayout = findViewById(R.id.tab_layout);
+        tabLayout = findViewById(R.id.tab_layout);
         pagerAdapter = new PagerAdapter(this);
         viewPager.setAdapter(pagerAdapter);
 
-        new TabLayoutMediator(tabLayout, viewPager, (tab, position) -> {
-            tab.setText(position == 0 ? "내 책" : getString(R.string.tab_favorites));
-        }).attach();
+        // 탭은 0, 1 두 개만 수동으로. 3번째 페이지는 스와이프로만 접근.
+        tabLayout.addTab(tabLayout.newTab().setText("내 책"));
+        tabLayout.addTab(tabLayout.newTab().setText(getString(R.string.tab_favorites)));
+
+        tabLayout.addOnTabSelectedListener(new TabLayout.OnTabSelectedListener() {
+            @Override public void onTabSelected(TabLayout.Tab tab) {
+                viewPager.setCurrentItem(tab.getPosition());
+            }
+            @Override public void onTabUnselected(TabLayout.Tab tab) {}
+            @Override public void onTabReselected(TabLayout.Tab tab) {}
+        });
+
+        viewPager.registerOnPageChangeCallback(new ViewPager2.OnPageChangeCallback() {
+            @Override
+            public void onPageSelected(int position) {
+                if (position == 0 || position == 1) {
+                    tabLayout.selectTab(tabLayout.getTabAt(position));
+                }
+                if (position == 2) {
+                    handleReaderLaunchPage();
+                }
+            }
+        });
 
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override public void handleOnBackPressed() {
@@ -76,25 +101,19 @@ public class BookListActivity extends AppCompatActivity {
             }
         });
 
-        swipeDetector = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
-            @Override
-            public boolean onFling(MotionEvent e1, MotionEvent e2, float vx, float vy) {
-                if (e1 == null || e2 == null) return false;
-                // 즐겨찾기 탭 (position 1) 에서만 작동.
-                if (viewPager.getCurrentItem() != 1) return false;
-                if (lastOpenedBookPath == null) return false;
-                float dx = e2.getX() - e1.getX();
-                float dy = Math.abs(e2.getY() - e1.getY());
-                // R→L fling: dx 음수, 가로 우세, 충분한 속도.
-                if (dx < -200 && Math.abs(dx) > dy * 2 && Math.abs(vx) > 800) {
-                    reopenLastBookWithoutAnimation();
-                    return true;
-                }
-                return false;
-            }
-        });
-
         checkPermissions();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        // 즐겨찾기→리더 진입 후 돌아왔을 때 position 을 1 (즐겨찾기) 로 복귀.
+        if (pendingResetToFavorites) {
+            pendingResetToFavorites = false;
+            if (viewPager.getCurrentItem() != 1) {
+                viewPager.setCurrentItem(1, false);
+            }
+        }
     }
 
     /** Fragment 에서 호출 — 사용자가 리더를 열 때 세션 메모리에 기록. */
@@ -102,26 +121,29 @@ public class BookListActivity extends AppCompatActivity {
         this.lastOpenedBookPath = filePath;
     }
 
-    private void reopenLastBookWithoutAnimation() {
-        if (lastOpenedBookPath == null) return;
-        File file = new File(lastOpenedBookPath);
-        if (!file.exists()) {
-            // 파일이 사라졌으면 세션 기록 폐기.
+    /** 즐겨찾기→리더 스와이프 도달 (position 2) 시 호출. */
+    private void handleReaderLaunchPage() {
+        if (lastOpenedBookPath != null && new File(lastOpenedBookPath).exists()) {
+            launchReaderHorizontally(lastOpenedBookPath);
+        } else {
+            // 파일 없으면 기록 폐기 + 잠시 빈 화면 → 즐겨찾기로 자동 스냅백.
             lastOpenedBookPath = null;
-            return;
+            viewPager.postDelayed(() -> {
+                if (viewPager.getCurrentItem() == 2) {
+                    viewPager.setCurrentItem(1, true);
+                }
+            }, 300);
         }
-        Intent intent = new Intent(this, ReaderActivity.class);
-        intent.putExtra(ReaderActivity.EXTRA_FILE_PATH, lastOpenedBookPath);
-        intent.putExtra(ReaderActivity.EXTRA_NO_ANIMATION, true);
-        ReaderActivity.startReader(this, intent);
     }
 
-    @Override
-    public boolean dispatchTouchEvent(MotionEvent ev) {
-        // GestureDetector 에 전달만 하고 실제 dispatch 는 그대로 진행
-        // (ViewPager2 / 탭의 정상 스와이프를 방해하지 않음).
-        if (swipeDetector != null) swipeDetector.onTouchEvent(ev);
-        return super.dispatchTouchEvent(ev);
+    /** 즐겨찾기 탭에서 스와이프로 리더 오픈 — 항상 horizontal 슬라이드 (탭 전환 느낌). */
+    private void launchReaderHorizontally(String filePath) {
+        pendingResetToFavorites = true;
+        Intent intent = new Intent(this, ReaderActivity.class);
+        intent.putExtra(ReaderActivity.EXTRA_FILE_PATH, filePath);
+        intent.putExtra(ReaderActivity.EXTRA_ENTER_ANIMATION, ReaderActivity.ANIM_HORIZONTAL);
+        startActivity(intent);
+        overridePendingTransition(R.anim.reader_enter_from_right, R.anim.reader_exit_to_left);
     }
 
     public boolean hasStoragePermissionPublic() {
@@ -163,11 +185,15 @@ public class BookListActivity extends AppCompatActivity {
     private static class PagerAdapter extends FragmentStateAdapter {
         PagerAdapter(@NonNull FragmentActivity activity) { super(activity); }
 
-        @Override public int getItemCount() { return 2; }
+        @Override public int getItemCount() { return 3; }
 
         @NonNull @Override
         public Fragment createFragment(int position) {
-            return position == 0 ? new BookListFragment() : new FavoritesFragment();
+            switch (position) {
+                case 0:  return new BookListFragment();
+                case 1:  return new FavoritesFragment();
+                default: return new ReaderLaunchFragment();
+            }
         }
     }
 }
