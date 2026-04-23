@@ -22,9 +22,10 @@ import com.google.android.material.tabs.TabLayout;
 import com.google.android.material.tabs.TabLayoutMediator;
 
 /**
- * 두 탭을 품은 메인 목록 화면 — "내 책" (로컬, 중첩 폴더 지원) + "NAS" (여러 단말의 읽기 기록).
- * 저장소 권한 로직은 Activity 레벨에서 유지하고, 권한 획득 시 BookListFragment 에 reload() 호출.
- * 뒤로가기는 "내 책" 탭의 폴더 스택을 우선 소비한 뒤 기본 동작으로 빠짐.
+ * 두 탭을 품은 메인 목록 화면 — "내 책" (로컬, 중첩 폴더 지원) + "즐겨찾기"
+ * (내 북마크 + 다른 단말 읽기 기록). 저장소 권한 로직은 Activity 레벨에서 유지하고,
+ * 권한 획득 시 BookListFragment 에 reload() 호출. 뒤로가기는 "내 책" 탭의 폴더
+ * 스택을 우선 소비한 뒤 기본 동작으로 빠짐.
  */
 public class BookListActivity extends AppCompatActivity {
 
@@ -49,7 +50,7 @@ public class BookListActivity extends AppCompatActivity {
         viewPager.setAdapter(pagerAdapter);
 
         new TabLayoutMediator(tabLayout, viewPager, (tab, position) -> {
-            tab.setText(position == 0 ? "내 책" : "NAS");
+            tab.setText(position == 0 ? "내 책" : getString(R.string.tab_favorites));
         }).attach();
 
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
@@ -111,7 +112,7 @@ public class BookListActivity extends AppCompatActivity {
 
         @NonNull @Override
         public Fragment createFragment(int position) {
-            return position == 0 ? new BookListFragment() : new NasHistoryFragment();
+            return position == 0 ? new BookListFragment() : new FavoritesFragment();
         }
     }
 }
