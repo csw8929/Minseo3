@@ -116,15 +116,13 @@
             android:orientation="horizontal"
             android:gravity="center_vertical">
 
-            <TextView
-                android:id="@+id/tv_page_info"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:textColor="#FFFFFF"
-                android:textSize="13sp"
-                android:paddingStart="4dp"
-                android:text="1 / 1" />
+            <ImageButton
+                android:id="@+id/btn_bookmarks"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@drawable/ic_bookmark_star_outline"
+                android:contentDescription="@string/bookmarks_title" />
 
             <ImageButton
                 android:id="@+id/btn_tts"
@@ -135,13 +133,24 @@
                 android:tint="#FFFFFF"
                 android:contentDescription="TTS" />
 
+            <TextView
+                android:id="@+id/tv_page_info"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:gravity="center"
+                android:textColor="#FFFFFF"
+                android:textSize="13sp"
+                android:text="1 / 1" />
+
             <ImageButton
-                android:id="@+id/btn_bookmarks"
+                android:id="@+id/btn_back"
                 android:layout_width="40dp"
                 android:layout_height="40dp"
                 android:background="?attr/selectableItemBackgroundBorderless"
-                android:src="@drawable/ic_bookmark_star_outline"
-                android:contentDescription="@string/bookmarks_title" />
+                android:src="@android:drawable/ic_menu_revert"
+                android:tint="#FFFFFF"
+                android:contentDescription="@string/back_to_list" />
 
         </LinearLayout>
     </LinearLayout>

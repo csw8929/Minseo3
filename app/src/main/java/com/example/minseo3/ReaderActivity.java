@@ -47,7 +47,7 @@ public class ReaderActivity extends AppCompatActivity {
     private TextView tvStatusLeft;
     private SeekBar seekBar;
     private View topBar, bottomBar;
-    private ImageButton btnBookmarks, btnTts;
+    private ImageButton btnBookmarks, btnTts, btnBack;
 
     // ── State
     private String text = "";
@@ -151,6 +151,7 @@ public class ReaderActivity extends AppCompatActivity {
         bottomBar     = findViewById(R.id.bottom_bar);
         btnBookmarks  = findViewById(R.id.btn_bookmarks);
         btnTts        = findViewById(R.id.btn_tts);
+        btnBack       = findViewById(R.id.btn_back);
 
         progressRepo = new LocalProgressRepository(this);
         nasSyncManager = new NasSyncManager(this);
@@ -193,11 +194,13 @@ public class ReaderActivity extends AppCompatActivity {
         setupTopMenu();
         btnBookmarks.setOnClickListener(v -> showBookmarks());
         btnTts.setOnClickListener(v -> toggleTts());
+        btnBack.setOnClickListener(v -> finish());
 
-        // Back button = exit app, not return to list
+        // Back press → return to list (BookListActivity is still in stack).
+        // 스와이프 L→R / 하단 back 버튼 / 시스템 back 모두 같은 finish() 경로.
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override public void handleOnBackPressed() {
-                finishAffinity();
+                finish();
             }
         });
 
