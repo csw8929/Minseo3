@@ -3,7 +3,7 @@
 
     <!-- Bookmarks -->
     <string name="bookmarks_title">북마크</string>
-    <string name="bookmark_delete">삭제</string>
+    <string name="bookmark_delete">삭제하기</string>
     <string name="bookmark_no_preview">(프리뷰 없음)</string>
 
     <string name="back_to_list">목록으로</string>
