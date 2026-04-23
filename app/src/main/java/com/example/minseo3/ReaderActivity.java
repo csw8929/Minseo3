@@ -388,27 +388,18 @@ public class ReaderActivity extends AppCompatActivity {
                 : R.drawable.ic_bookmark_star_outline);
     }
 
-    /** Opens the bookmark BottomSheet for the current book. */
+    /**
+     * 별 탭 = 현재 페이지 북마크 즉시 토글 (BottomSheet 팝업 없음).
+     * 추가/제거는 별 아이콘 flip 으로만 피드백. 이 책 북마크 목록을 보려면
+     * 즐겨찾기 탭 → "내 북마크" 섹션.
+     */
     private void showBookmarks() {
-        if (!paginationReady || text.isEmpty()) return;
-        BookmarkBottomSheet sheet = new BookmarkBottomSheet();
-        sheet.bind(bookmarksRepo, new BookmarkBottomSheet.Listener() {
-            @Override public void onBookmarkJumpRequested(int charOffset) {
-                displayPage(pageRenderer.offsetToPage(charOffset));
-            }
-            @Override public int getCurrentPageStart() {
-                return pageRenderer.getPageStartOffset(currentPage);
-            }
-            @Override public int getCurrentPageEnd() {
-                return (currentPage + 1 < pageRenderer.getPageCount())
-                        ? pageRenderer.getPageStartOffset(currentPage + 1)
-                        : text.length();
-            }
-            @Override public String getText() { return text; }
-            @Override public String getFileHash() { return fileHash; }
-            @Override public String getDeviceId() { return nasSyncManager.deviceId(); }
-        });
-        sheet.show(getSupportFragmentManager(), "bookmarks");
+        if (!paginationReady || text.isEmpty() || bookmarksRepo == null) return;
+        int start = pageRenderer.getPageStartOffset(currentPage);
+        int end = (currentPage + 1 < pageRenderer.getPageCount())
+                ? pageRenderer.getPageStartOffset(currentPage + 1)
+                : text.length();
+        bookmarksRepo.toggleAtPage(fileHash, start, end, text, nasSyncManager.deviceId());
     }
 
     private void nextPage() {
