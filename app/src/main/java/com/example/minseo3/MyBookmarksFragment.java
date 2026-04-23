@@ -113,7 +113,12 @@ public class MyBookmarksFragment extends Fragment {
         menu.setOnMenuItemClickListener(mi -> {
             if (mi.getItemId() == R.id.action_delete) {
                 if (bmRepo == null) bmRepo = new BookmarksRepository(requireContext());
-                bmRepo.deleteById(item.fileHash, item.bookmark.id);
+                boolean removed = bmRepo.deleteById(item.fileHash, item.bookmark.id);
+                if (removed) {
+                    Toast.makeText(requireContext(),
+                            R.string.bookmark_deleted_toast,
+                            Toast.LENGTH_SHORT).show();
+                }
                 refresh();
                 return true;
             }

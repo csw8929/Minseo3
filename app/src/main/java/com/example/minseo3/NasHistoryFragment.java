@@ -128,7 +128,12 @@ public class NasHistoryFragment extends Fragment {
             if (mi.getItemId() == R.id.action_delete) {
                 nas.deletePosition(item.fileHash, new RemoteProgressRepository.Callback<Void>() {
                     @Override public void onResult(Void v) {
-                        mainHandler.post(() -> refresh());
+                        mainHandler.post(() -> {
+                            Toast.makeText(requireContext(),
+                                    R.string.entry_deleted_toast,
+                                    Toast.LENGTH_SHORT).show();
+                            refresh();
+                        });
                     }
                     @Override public void onError(String message) {
                         mainHandler.post(() -> Toast.makeText(requireContext(),

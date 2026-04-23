@@ -443,9 +443,8 @@ public class ReaderActivity extends AppCompatActivity {
     }
 
     /**
-     * 별 탭 = 현재 페이지 북마크 즉시 토글 (BottomSheet 팝업 없음).
-     * 추가/제거는 별 아이콘 flip 으로만 피드백. 이 책 북마크 목록을 보려면
-     * 즐겨찾기 탭 → "내 북마크" 섹션.
+     * 별 탭 = 현재 페이지 북마크 즉시 토글 + 토스트 (등록됨 / 해제됨).
+     * BottomSheet 팝업은 뜨지 않음. 이 책 북마크 목록을 보려면 즐겨찾기 탭 → "내 북마크".
      */
     private void showBookmarks() {
         if (!paginationReady || text.isEmpty() || bookmarksRepo == null) return;
@@ -453,7 +452,11 @@ public class ReaderActivity extends AppCompatActivity {
         int end = (currentPage + 1 < pageRenderer.getPageCount())
                 ? pageRenderer.getPageStartOffset(currentPage + 1)
                 : text.length();
-        bookmarksRepo.toggleAtPage(fileHash, start, end, text, nasSyncManager.deviceId());
+        boolean added = bookmarksRepo.toggleAtPage(
+                fileHash, start, end, text, nasSyncManager.deviceId());
+        Toast.makeText(this,
+                added ? R.string.bookmark_registered : R.string.bookmark_unregistered,
+                Toast.LENGTH_SHORT).show();
     }
 
     private void nextPage() {
