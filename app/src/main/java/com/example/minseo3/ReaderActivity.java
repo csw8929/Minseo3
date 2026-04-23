@@ -1,7 +1,10 @@
 package com.example.minseo3;
 
+import android.app.Activity;
+import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.res.Configuration;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -40,6 +43,30 @@ public class ReaderActivity extends AppCompatActivity {
     public static final String EXTRA_CHAR_OFFSET = "char_offset";
     /** true 면 NAS 와의 충돌 해결을 건너뜀 — NAS 탭에서 진입한 경우 사용. */
     public static final String EXTRA_SKIP_CONFLICT_RESOLVE = "skip_conflict_resolve";
+    /** true 면 Activity 전환 애니메이션을 생략 (예: 스와이프 R→L 로 이전 책 재오픈). */
+    public static final String EXTRA_NO_ANIMATION = "no_animation";
+
+    /**
+     * 리스트→리더 진입의 표준 경로. 세로 모드에선 위아래, 가로 모드에선 좌우 슬라이드.
+     * 기존 startActivity 호출을 모두 이 헬퍼로 교체해 방향 일관성 유지.
+     */
+    public static void startReader(Activity from, Intent intent) {
+        from.startActivity(intent);
+        if (intent.getBooleanExtra(EXTRA_NO_ANIMATION, false)) {
+            from.overridePendingTransition(0, 0);
+            return;
+        }
+        boolean landscape = from.getResources().getConfiguration().orientation
+                == Configuration.ORIENTATION_LANDSCAPE;
+        from.overridePendingTransition(
+                landscape ? R.anim.reader_enter_from_right : R.anim.reader_enter_from_bottom,
+                landscape ? R.anim.reader_exit_to_left    : R.anim.reader_exit_to_top);
+    }
+
+    /** Fragment 용 — requireActivity() 통해 호출. */
+    public static void startReaderFromFragment(androidx.fragment.app.Fragment from, Intent intent) {
+        startReader(from.requireActivity(), intent);
+    }
 
     // ── UI
     private PageView pageView;
@@ -610,8 +637,20 @@ public class ReaderActivity extends AppCompatActivity {
     protected void onDestroy() {
         super.onDestroy();
         if (bookmarksRepo != null) bookmarksRepo.clearOnChangedListener();
+        uiHideHandler.removeCallbacks(uiHideRunnable);
         tts.shutdown();
         executor.shutdown();
+    }
+
+    /** 들어올 때 애니와 반대 방향으로 나감 — 세로: 아래로 / 가로: 오른쪽으로. */
+    @Override
+    public void finish() {
+        super.finish();
+        boolean landscape = getResources().getConfiguration().orientation
+                == Configuration.ORIENTATION_LANDSCAPE;
+        overridePendingTransition(
+                landscape ? R.anim.reader_enter_from_left  : R.anim.reader_enter_from_top,
+                landscape ? R.anim.reader_exit_to_right    : R.anim.reader_exit_to_bottom);
     }
 
     private float spToPx(float sp) {

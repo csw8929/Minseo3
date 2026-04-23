@@ -153,7 +153,7 @@ public class NasHistoryFragment extends Fragment {
         intent.putExtra(ReaderActivity.EXTRA_CHAR_OFFSET, item.pos.charOffset);
         // NAS 탭에서 진입 — 이미 NAS offset 을 가지고 있으므로 충돌 해결 생략.
         intent.putExtra(ReaderActivity.EXTRA_SKIP_CONFLICT_RESOLVE, true);
-        startActivity(intent);
+        ReaderActivity.startReaderFromFragment(this, intent);
     }
 
     // ── Data model ──────────────────────────────────────────────────────────

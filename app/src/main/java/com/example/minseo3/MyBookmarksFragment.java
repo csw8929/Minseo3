@@ -101,7 +101,7 @@ public class MyBookmarksFragment extends Fragment {
         intent.putExtra(ReaderActivity.EXTRA_FILE_PATH, item.filePath);
         intent.putExtra(ReaderActivity.EXTRA_CHAR_OFFSET, item.bookmark.charOffset);
         intent.putExtra(ReaderActivity.EXTRA_SKIP_CONFLICT_RESOLVE, true);
-        startActivity(intent);
+        ReaderActivity.startReaderFromFragment(this, intent);
     }
 
     private void showDeleteMenu(View anchor, Item item) {
