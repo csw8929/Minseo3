@@ -22,12 +22,15 @@ import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
 
+import com.example.minseo3.nas.BookmarksConflictResolver;
 import com.example.minseo3.nas.ConflictOutcome;
 import com.example.minseo3.nas.ConflictResolver;
+import com.example.minseo3.nas.RemoteBookmarksRepository;
 import com.example.minseo3.nas.RemoteProgressRepository;
 import com.example.minseo3.nas.RemotePosition;
 
 import java.io.File;
+import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -44,7 +47,7 @@ public class ReaderActivity extends AppCompatActivity {
     private TextView tvStatusLeft;
     private SeekBar seekBar;
     private View topBar, bottomBar;
-    private ImageButton btnSettings, btnTts;
+    private ImageButton btnBookmarks, btnTts;
 
     // ── State
     private String text = "";
@@ -73,6 +76,39 @@ public class ReaderActivity extends AppCompatActivity {
     private LocalProgressRepository progressRepo;
     private NasSyncManager nasSyncManager;
     private PaginationCache paginationCache;
+
+    // ── Bookmarks (Phase 1: local-only)
+    private BookmarksRepository bookmarksRepo;
+    private final Runnable bookmarksChangedListener = this::onBookmarksChanged;
+
+    private void onBookmarksChanged() {
+        if (paginationReady) refreshBookmarkIcon();
+        if (!fileHash.isEmpty() && bookmarksRepo != null && nasSyncManager != null) {
+            // Phase 2: push snapshot (alive + tombstone). NasSyncManager coalesces
+            // rapid toggles via 1s debounce, so calling this on every mutation is safe.
+            nasSyncManager.pushBookmarks(fileHash, bookmarksRepo.getAll(fileHash));
+        }
+    }
+
+    /** Phase 2: pull remote bookmarks once per reader entry and merge into local. */
+    private void maybePullBookmarks() {
+        if (fileHash.isEmpty() || bookmarksRepo == null || nasSyncManager == null) return;
+        if (!nasSyncManager.isEnabled() || !nasSyncManager.isConnected()) return;
+        final String hashAtRequest = fileHash;
+        nasSyncManager.pullBookmarks(hashAtRequest,
+                new RemoteBookmarksRepository.Callback<List<Bookmark>>() {
+                    @Override public void onResult(List<Bookmark> remote) {
+                        mainHandler.post(() -> {
+                            if (!hashAtRequest.equals(fileHash)) return; // activity moved on
+                            if (remote == null || remote.isEmpty()) return;
+                            List<Bookmark> local = bookmarksRepo.getAll(hashAtRequest);
+                            List<Bookmark> merged = BookmarksConflictResolver.merge(local, remote);
+                            bookmarksRepo.replaceAll(hashAtRequest, merged);
+                        });
+                    }
+                    @Override public void onError(String msg) { /* lenient — 로컬 그대로 */ }
+                });
+    }
 
     // False while the full paginate is running. Blocks page navigation, seekbar
     // input, and TTS so we don't act on incomplete pageOffsets. flushSaveNow()
@@ -113,12 +149,14 @@ public class ReaderActivity extends AppCompatActivity {
         seekBar       = findViewById(R.id.seek_bar);
         topBar        = findViewById(R.id.top_bar);
         bottomBar     = findViewById(R.id.bottom_bar);
-        btnSettings   = findViewById(R.id.btn_settings);
+        btnBookmarks  = findViewById(R.id.btn_bookmarks);
         btnTts        = findViewById(R.id.btn_tts);
 
         progressRepo = new LocalProgressRepository(this);
         nasSyncManager = new NasSyncManager(this);
         paginationCache = new PaginationCache(this);
+        bookmarksRepo = new BookmarksRepository(this);
+        bookmarksRepo.setOnChangedListener(bookmarksChangedListener);
 
         readerPrefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         textSizeSp = readerPrefs.getFloat(PREF_TEXT_SIZE_SP, textSizeSp);
@@ -153,7 +191,7 @@ public class ReaderActivity extends AppCompatActivity {
         setupTouchHandler();
         setupSeekBar();
         setupTopMenu();
-        btnSettings.setOnClickListener(v -> showSettings());
+        btnBookmarks.setOnClickListener(v -> showBookmarks());
         btnTts.setOnClickListener(v -> toggleTts());
 
         // Back button = exit app, not return to list
@@ -265,6 +303,7 @@ public class ReaderActivity extends AppCompatActivity {
                 paginationReady = true;
                 displayPage(page);
                 maybeResolveNasConflict();
+                maybePullBookmarks();
             });
         });
     }
@@ -336,7 +375,44 @@ public class ReaderActivity extends AppCompatActivity {
         tvStatusLeft.setText(pageStr + "  (" + percent + "%)");
         seekBar.setProgress(currentPage);
 
+        refreshBookmarkIcon();
         scheduleSave();
+    }
+
+    /** Flip bottom-bar star between filled/outline based on whether this page is bookmarked. */
+    private void refreshBookmarkIcon() {
+        if (btnBookmarks == null || bookmarksRepo == null || fileHash.isEmpty()) return;
+        int start = pageRenderer.getPageStartOffset(currentPage);
+        int end = (currentPage + 1 < pageRenderer.getPageCount())
+                ? pageRenderer.getPageStartOffset(currentPage + 1)
+                : text.length();
+        boolean filled = bookmarksRepo.anyInRange(fileHash, start, end);
+        btnBookmarks.setImageResource(filled
+                ? R.drawable.ic_bookmark_star_filled
+                : R.drawable.ic_bookmark_star_outline);
+    }
+
+    /** Opens the bookmark BottomSheet for the current book. */
+    private void showBookmarks() {
+        if (!paginationReady || text.isEmpty()) return;
+        BookmarkBottomSheet sheet = new BookmarkBottomSheet();
+        sheet.bind(bookmarksRepo, new BookmarkBottomSheet.Listener() {
+            @Override public void onBookmarkJumpRequested(int charOffset) {
+                displayPage(pageRenderer.offsetToPage(charOffset));
+            }
+            @Override public int getCurrentPageStart() {
+                return pageRenderer.getPageStartOffset(currentPage);
+            }
+            @Override public int getCurrentPageEnd() {
+                return (currentPage + 1 < pageRenderer.getPageCount())
+                        ? pageRenderer.getPageStartOffset(currentPage + 1)
+                        : text.length();
+            }
+            @Override public String getText() { return text; }
+            @Override public String getFileHash() { return fileHash; }
+            @Override public String getDeviceId() { return nasSyncManager.deviceId(); }
+        });
+        sheet.show(getSupportFragmentManager(), "bookmarks");
     }
 
     private void nextPage() {
@@ -496,6 +572,7 @@ public class ReaderActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        if (bookmarksRepo != null) bookmarksRepo.clearOnChangedListener();
         tts.shutdown();
         executor.shutdown();
     }

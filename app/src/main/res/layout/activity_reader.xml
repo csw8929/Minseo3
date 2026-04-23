@@ -149,13 +149,12 @@
                 android:contentDescription="TTS" />
 
             <ImageButton
-                android:id="@+id/btn_settings"
+                android:id="@+id/btn_bookmarks"
                 android:layout_width="40dp"
                 android:layout_height="40dp"
                 android:background="?attr/selectableItemBackgroundBorderless"
-                android:src="@android:drawable/ic_menu_preferences"
-                android:tint="#FFFFFF"
-                android:contentDescription="설정" />
+                android:src="@drawable/ic_bookmark_star_outline"
+                android:contentDescription="@string/bookmarks_title" />
 
         </LinearLayout>
     </LinearLayout>
