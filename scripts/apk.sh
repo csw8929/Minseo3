@@ -14,7 +14,7 @@
 set -u
 
 # ── 설정 ────────────────────────────────────────────────────────────────────
-APK_FILE="${APK_FILE:-app/build/outputs/apk/debug/app-debug.apk}"
+APK_FILE="${APK_FILE:-app/build/outputs/apk/debug/Minseo3.apk}"
 PACKAGE="${PACKAGE:-com.example.minseo3}"
 
 # 알려진 디바이스 시리얼 → 사람 이름. 목록에 없는 기기는 getprop 모델명으로 폴백.
@@ -144,6 +144,12 @@ action_install_all() {
   done
 }
 
+action_build() {
+  echo ""
+  echo "== build — ./gradlew assembleDebug =="
+  ./gradlew assembleDebug
+}
+
 action_clear_all() {
   local devices
   mapfile -t devices < <(list_devices)
@@ -174,6 +180,7 @@ main_menu() {
     echo "│  3) install all devices — 전체 설치"
     echo "│  4) clear data          — 디바이스 선택해 데이터 삭제"
     echo "│  5) clear all data      — 전체 데이터 삭제"
+    echo "│  9) build               — ./gradlew assembleDebug"
     echo "│  0) exit"
     echo "└────────────────────────────────────────────────────┘"
     read -rsn1 -p "> " choice
@@ -184,6 +191,7 @@ main_menu() {
       3) action_install_all ;;
       4) action_clear_device ;;
       5) action_clear_all ;;
+      9) action_build ;;
       0|q) echo "bye"; exit 0 ;;
       "") ;;  # 빈 입력(Enter) 은 조용히 넘김
       *) echo "  잘못된 선택: $choice" ;;
