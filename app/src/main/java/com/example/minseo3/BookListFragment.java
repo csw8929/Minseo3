@@ -1,6 +1,5 @@
 package com.example.minseo3;
 
-import android.content.Intent;
 import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -103,13 +102,10 @@ public class BookListFragment extends Fragment {
     }
 
     private void openBook(BookItem item) {
-        Intent intent = new Intent(requireContext(), ReaderActivity.class);
-        intent.putExtra(ReaderActivity.EXTRA_FILE_PATH, item.file.getAbsolutePath());
-        if (item.entry != null) intent.putExtra(ReaderActivity.EXTRA_CHAR_OFFSET, item.entry.charOffset);
-        if (requireActivity() instanceof BookListActivity) {
-            ((BookListActivity) requireActivity()).noteOpenedBook(item.file.getAbsolutePath());
-        }
-        ReaderActivity.startReaderFromFragment(this, intent);
+        if (!(requireActivity() instanceof BookListActivity)) return;
+        BookListActivity host = (BookListActivity) requireActivity();
+        int startOffset = (item.entry != null) ? item.entry.charOffset : 0;
+        host.openBook(item.file.getAbsolutePath(), startOffset, /*skipConflict*/ false);
     }
 
     private void openFolder(BookItem item) {

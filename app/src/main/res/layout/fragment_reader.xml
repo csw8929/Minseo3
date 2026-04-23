@@ -23,7 +23,18 @@
         android:layout_gravity="center"
         android:visibility="gone" />
 
-    <!-- Top area: status row + menu row (tap middle to toggle) -->
+    <!-- 비어있는 상태 (state 없이 스와이프 도달 시) -->
+    <TextView
+        android:id="@+id/tv_reader_empty"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:textColor="#888888"
+        android:textSize="14sp"
+        android:text="읽을 책을 선택하세요"
+        android:visibility="gone" />
+
+    <!-- Top area: status row + menu row -->
     <LinearLayout
         android:id="@+id/top_bar"
         android:layout_width="match_parent"
@@ -32,7 +43,6 @@
         android:orientation="vertical"
         android:background="#CC000000">
 
-        <!-- Status row -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="32dp"
@@ -60,7 +70,6 @@
                 android:format24Hour="HH:mm" />
         </LinearLayout>
 
-        <!-- Menu row: 설정 / NAS — hideable, status row above stays visible -->
         <LinearLayout
             android:id="@+id/top_menu_row"
             android:layout_width="match_parent"

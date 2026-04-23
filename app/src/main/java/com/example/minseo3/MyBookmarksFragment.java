@@ -1,6 +1,5 @@
 package com.example.minseo3;
 
-import android.content.Intent;
 import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -97,14 +96,9 @@ public class MyBookmarksFragment extends Fragment {
                     "이 기기에 해당 책 파일이 없습니다", Toast.LENGTH_SHORT).show();
             return;
         }
-        Intent intent = new Intent(requireContext(), ReaderActivity.class);
-        intent.putExtra(ReaderActivity.EXTRA_FILE_PATH, item.filePath);
-        intent.putExtra(ReaderActivity.EXTRA_CHAR_OFFSET, item.bookmark.charOffset);
-        intent.putExtra(ReaderActivity.EXTRA_SKIP_CONFLICT_RESOLVE, true);
-        if (requireActivity() instanceof BookListActivity) {
-            ((BookListActivity) requireActivity()).noteOpenedBook(item.filePath);
-        }
-        ReaderActivity.startReaderFromFragment(this, intent);
+        if (!(requireActivity() instanceof BookListActivity)) return;
+        ((BookListActivity) requireActivity())
+                .openBook(item.filePath, item.bookmark.charOffset, /*skipConflict*/ true);
     }
 
     private void showDeleteMenu(View anchor, Item item) {

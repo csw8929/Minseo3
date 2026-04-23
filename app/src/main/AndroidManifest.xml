@@ -32,11 +32,6 @@
         </activity>
 
         <activity
-            android:name=".ReaderActivity"
-            android:exported="false"
-            android:windowSoftInputMode="stateHidden" />
-
-        <activity
             android:name=".NasSettingsActivity"
             android:exported="false"
             android:label="NAS 설정" />

@@ -1,6 +1,5 @@
 package com.example.minseo3;
 
-import android.content.Intent;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -153,15 +152,10 @@ public class NasHistoryFragment extends Fragment {
                     Toast.LENGTH_SHORT).show();
             return;
         }
-        Intent intent = new Intent(requireContext(), ReaderActivity.class);
-        intent.putExtra(ReaderActivity.EXTRA_FILE_PATH, item.localFile.getAbsolutePath());
-        intent.putExtra(ReaderActivity.EXTRA_CHAR_OFFSET, item.pos.charOffset);
+        if (!(requireActivity() instanceof BookListActivity)) return;
         // NAS 탭에서 진입 — 이미 NAS offset 을 가지고 있으므로 충돌 해결 생략.
-        intent.putExtra(ReaderActivity.EXTRA_SKIP_CONFLICT_RESOLVE, true);
-        if (requireActivity() instanceof BookListActivity) {
-            ((BookListActivity) requireActivity()).noteOpenedBook(item.localFile.getAbsolutePath());
-        }
-        ReaderActivity.startReaderFromFragment(this, intent);
+        ((BookListActivity) requireActivity())
+                .openBook(item.localFile.getAbsolutePath(), item.pos.charOffset, /*skipConflict*/ true);
     }
 
     // ── Data model ──────────────────────────────────────────────────────────
