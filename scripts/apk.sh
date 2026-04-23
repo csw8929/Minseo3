@@ -108,7 +108,8 @@ pick_device_and_run() {
   done
   echo "  0) 취소"
   echo ""
-  read -rp "선택> " choice
+  read -rsn1 -p "선택> " choice
+  echo "$choice"
   if [ -z "$choice" ] || [ "$choice" = "0" ]; then
     return
   fi
@@ -175,15 +176,16 @@ main_menu() {
     echo "│  5) clear all data      — 전체 데이터 삭제"
     echo "│  0) exit"
     echo "└────────────────────────────────────────────────────┘"
-    read -rp "> " choice
+    read -rsn1 -p "> " choice
+    echo "$choice"
     case "$choice" in
       1) action_list_devices ;;
       2) action_install_device ;;
       3) action_install_all ;;
       4) action_clear_device ;;
       5) action_clear_all ;;
-      0|q|quit|exit) echo "bye"; exit 0 ;;
-      "") ;;  # 빈 입력은 조용히 넘김
+      0|q) echo "bye"; exit 0 ;;
+      "") ;;  # 빈 입력(Enter) 은 조용히 넘김
       *) echo "  잘못된 선택: $choice" ;;
     esac
   done
