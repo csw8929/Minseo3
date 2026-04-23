@@ -5,6 +5,7 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
+import com.example.minseo3.nas.FakeRemoteBookmarksRepository;
 import com.example.minseo3.nas.FakeRemoteProgressRepository;
 import com.example.minseo3.nas.RemoteProgressRepository;
 import com.example.minseo3.nas.RemotePosition;
@@ -23,6 +24,7 @@ public class NasSyncManagerTest {
 
     private InMemoryPrefs prefs;
     private FakeRemoteProgressRepository fake;
+    private FakeRemoteBookmarksRepository fakeBm;
     private ExecutorService executor;
     private NasSyncManager nas;
 
@@ -30,8 +32,9 @@ public class NasSyncManagerTest {
     public void setUp() {
         prefs = new InMemoryPrefs();
         fake = new FakeRemoteProgressRepository("device-test");
+        fakeBm = new FakeRemoteBookmarksRepository();
         executor = new InlineExecutor();
-        nas = new NasSyncManager(prefs, fake, executor);
+        nas = new NasSyncManager(prefs, fake, fakeBm, executor);
     }
 
     @Test

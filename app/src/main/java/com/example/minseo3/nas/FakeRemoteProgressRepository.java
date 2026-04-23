@@ -48,6 +48,13 @@ public class FakeRemoteProgressRepository implements RemoteProgressRepository {
         cb.onResult(new HashMap<>(store));
     }
 
+    @Override
+    public void delete(String fileHash, Callback<Void> cb) {
+        if (consumeFailure()) { cb.onError(failMessage); return; }
+        store.remove(fileHash);
+        cb.onResult(null);
+    }
+
     private boolean consumeFailure() {
         if (nextCallFails) {
             nextCallFails = false;

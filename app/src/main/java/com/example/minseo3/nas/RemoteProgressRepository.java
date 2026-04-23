@@ -20,4 +20,10 @@ public interface RemoteProgressRepository {
     void fetchOne(String fileHash, Callback<RemotePosition> cb);
 
     void fetchAll(Callback<Map<String, RemotePosition>> cb);
+
+    /**
+     * pos_{fileHash}.json 파일을 NAS에서 삭제. 파일 없어도 성공 간주 (멱등).
+     * "다른 단말 진행" 리스트에서 사용자가 특정 기록을 치우고 싶을 때 사용.
+     */
+    void delete(String fileHash, Callback<Void> cb);
 }
