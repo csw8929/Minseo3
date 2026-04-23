@@ -118,7 +118,6 @@ public class ReaderFragment extends Fragment {
     @Override
     public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
-        requireActivity().getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
         pageView      = view.findViewById(R.id.page_view);
         tvPageInfo    = view.findViewById(R.id.tv_page_info);
@@ -170,6 +169,8 @@ public class ReaderFragment extends Fragment {
     @Override
     public void onResume() {
         super.onResume();
+        // 리더 화면이 실제로 보일 때만 screen-on (ViewPager2 다른 페이지 활성 시 clear).
+        requireActivity().getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         loadCurrentBookFromHost();
     }
 
@@ -599,6 +600,7 @@ public class ReaderFragment extends Fragment {
     @Override
     public void onPause() {
         super.onPause();
+        requireActivity().getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         if (tts != null) tts.stop();
         ttsActive = false;
         flushSaveNow();

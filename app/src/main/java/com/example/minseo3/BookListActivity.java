@@ -8,6 +8,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.provider.Settings;
+import android.view.View;
 
 import androidx.activity.OnBackPressedCallback;
 import androidx.annotation.NonNull;
@@ -15,9 +16,13 @@ import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentActivity;
+import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsCompat;
+import androidx.core.view.WindowInsetsControllerCompat;
 import androidx.viewpager2.adapter.FragmentStateAdapter;
 import androidx.viewpager2.widget.ViewPager2;
 
+import com.google.android.material.appbar.AppBarLayout;
 import com.google.android.material.tabs.TabLayout;
 
 /**
@@ -40,6 +45,7 @@ public class BookListActivity extends AppCompatActivity {
 
     private ViewPager2 viewPager;
     private TabLayout tabLayout;
+    private AppBarLayout appBar;
     private PagerAdapter pagerAdapter;
 
     // ── 현재 열린 책 상태 (ReaderFragment 가 onResume 에서 읽음) ─────────────
@@ -57,6 +63,7 @@ public class BookListActivity extends AppCompatActivity {
 
         viewPager = findViewById(R.id.view_pager);
         tabLayout = findViewById(R.id.tab_layout);
+        appBar = findViewById(R.id.app_bar);
         pagerAdapter = new PagerAdapter(this);
         viewPager.setAdapter(pagerAdapter);
         // 3 페이지 모두 메모리 유지 — 탭 전환 시 fragment 재생성으로 리더 상태
@@ -77,14 +84,27 @@ public class BookListActivity extends AppCompatActivity {
 
         viewPager.registerOnPageChangeCallback(new ViewPager2.OnPageChangeCallback() {
             @Override public void onPageSelected(int position) {
-                // position 0, 1 만 탭바 sync. 2 는 탭 highlight 없음 — 직전 상태 유지.
                 if (position == 0 || position == 1) {
                     tabLayout.selectTab(tabLayout.getTabAt(position));
                 }
-                // position 2 도달 시 currentBookPath 가 null 이면 빈 상태로 보였다가
-                // 사용자가 다시 왼쪽으로 돌아가도록 유도 — ReaderFragment.onResume 에서 처리.
+                applyChromeForPosition(position);
+            }
+
+            @Override public void onPageScrolled(int position, float offset, int px) {
+                // 즐겨찾기(1) ↔ 리더(2) 스와이프 중에 AppBarLayout 을 부드럽게
+                // 페이드 아웃. offset 은 position 1 에서 0 (즐겨찾기 현재) →
+                // 1 (리더 완전 도달). 역방향 (리더 → 즐겨찾기) 도 대칭.
+                if (position == 1) {
+                    appBar.setAlpha(1f - offset);
+                } else if (position == 0) {
+                    appBar.setAlpha(1f);
+                }
+                // position 2 이상에서는 onPageSelected(2) 가 alpha=0 세팅 후 유지.
             }
         });
+
+        // 초기 상태 설정 (앱 기동 시 position 0 이므로 chrome 보임).
+        applyChromeForPosition(viewPager.getCurrentItem());
 
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override public void handleOnBackPressed() {
@@ -130,6 +150,28 @@ public class BookListActivity extends AppCompatActivity {
     /** 리더에서 목록(즐겨찾기)으로 복귀. 책 상태는 유지 — 다음 swipe 로 재오픈 가능. */
     public void navigateToFavorites() {
         viewPager.setCurrentItem(1, true);
+    }
+
+    /**
+     * 현재 페이지에 맞춰 AppBarLayout 표시 여부 + 시스템 bar (status/nav) 전체화면
+     * 토글. 리더 페이지 (2) 에선 AppBar 숨김 + 시스템 bar 숨김 → 리더 content
+     * 만으로 full screen. 0, 1 페이지는 일반 모드.
+     */
+    private void applyChromeForPosition(int position) {
+        boolean readerPage = (position == 2);
+        appBar.setAlpha(readerPage ? 0f : 1f);
+        appBar.setVisibility(readerPage ? View.GONE : View.VISIBLE);
+
+        WindowInsetsControllerCompat controller =
+                WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView());
+        WindowCompat.setDecorFitsSystemWindows(getWindow(), !readerPage);
+        if (readerPage) {
+            controller.hide(WindowInsetsCompat.Type.statusBars() | WindowInsetsCompat.Type.navigationBars());
+            controller.setSystemBarsBehavior(
+                    WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+        } else {
+            controller.show(WindowInsetsCompat.Type.statusBars() | WindowInsetsCompat.Type.navigationBars());
+        }
     }
 
     // ── Permissions (원본 유지) ─────────────────────────────────────────────
