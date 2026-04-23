@@ -216,13 +216,6 @@ public class ReaderActivity extends AppCompatActivity {
     // ── Top menu (리스트 / 설정 / NAS) ────────────────────────────────────────
 
     private void setupTopMenu() {
-        findViewById(R.id.menu_list).setOnClickListener(v -> {
-            // Bring the existing BookList forward, keeping Reader in the stack
-            // so that pressing back on BookList returns to this novel.
-            Intent intent = new Intent(this, BookListActivity.class);
-            intent.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
-            startActivity(intent);
-        });
         findViewById(R.id.menu_settings).setOnClickListener(v -> showSettings());
         findViewById(R.id.menu_nas).setOnClickListener(v ->
                 startActivity(new Intent(this, NasSettingsActivity.class)));
