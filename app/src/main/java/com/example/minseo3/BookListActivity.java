@@ -14,11 +14,13 @@ import androidx.activity.OnBackPressedCallback;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.fragment.app.Fragment;
-import androidx.fragment.app.FragmentActivity;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
+import androidx.fragment.app.Fragment;
+import androidx.fragment.app.FragmentActivity;
 import androidx.viewpager2.adapter.FragmentStateAdapter;
 import androidx.viewpager2.widget.ViewPager2;
 
@@ -66,6 +68,18 @@ public class BookListActivity extends AppCompatActivity {
         appBar = findViewById(R.id.app_bar);
         pagerAdapter = new PagerAdapter(this);
         viewPager.setAdapter(pagerAdapter);
+
+        // Window insets 수동 처리 — AppBar 가 상단 status bar padding 을 가져가고,
+        // ViewPager2 는 즉시 AppBar 아래부터 시작. 리더 페이지(AppBar GONE) 이면
+        // ViewPager2 가 edge-to-edge 로 확장 (status bar 영역까지 content 그림).
+        View rootLayout = findViewById(R.id.root_layout);
+        WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
+        ViewCompat.setOnApplyWindowInsetsListener(rootLayout, (v, insets) -> {
+            Insets sys = insets.getInsets(WindowInsetsCompat.Type.systemBars());
+            // AppBar 는 status bar 가 보이는 페이지에서만 padding 받음 (리더 페이지는 GONE 이라 무영향).
+            appBar.setPadding(0, sys.top, 0, 0);
+            return insets;
+        });
         // 3 페이지 모두 메모리 유지 — 탭 전환 시 fragment 재생성으로 리더 상태
         // 날아가는 것을 방지.
         viewPager.setOffscreenPageLimit(2);
@@ -164,7 +178,8 @@ public class BookListActivity extends AppCompatActivity {
 
         WindowInsetsControllerCompat controller =
                 WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView());
-        WindowCompat.setDecorFitsSystemWindows(getWindow(), !readerPage);
+        // setDecorFitsSystemWindows(false) 는 onCreate 에서 한 번만 세팅. 토글하지 않음
+        // (자체 insets listener 로 AppBar padding 을 관리).
         if (readerPage) {
             controller.hide(WindowInsetsCompat.Type.statusBars() | WindowInsetsCompat.Type.navigationBars());
             controller.setSystemBarsBehavior(
