@@ -12,6 +12,7 @@
         android:orientation="vertical">
 
         <TextView
+            android:id="@+id/tv_section_my_bookmarks"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:padding="12dp"
@@ -41,6 +42,7 @@
         android:orientation="vertical">
 
         <TextView
+            android:id="@+id/tv_section_other_devices"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:padding="12dp"

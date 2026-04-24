@@ -105,6 +105,11 @@ public class NasHistoryFragment extends Fragment {
             progress.setVisibility(View.GONE);
             tvStatus.setVisibility(View.GONE);
         }
+
+        // 부모에게 개수 통지 (즐겨찾기 섹션 타이틀 옆 괄호).
+        if (getParentFragment() instanceof FavoritesFragment) {
+            ((FavoritesFragment) getParentFragment()).setOtherDeviceCount(items.size());
+        }
     }
 
     private void showLoading() {
@@ -198,7 +203,8 @@ public class NasHistoryFragment extends Fragment {
             String deviceShort = item.pos.deviceId.length() >= 4
                     ? item.pos.deviceId.substring(0, 4) : item.pos.deviceId;
             String suffix = item.isActive() ? "" : " · 이 기기에 파일 없음";
-            h.tvInfo.setText(percent + "% · 기기 " + deviceShort + " · " + ago + suffix);
+            // 시간 옆에 괄호로 % — 사용자 요청 형식.
+            h.tvInfo.setText("기기 " + deviceShort + " · " + ago + " (" + percent + "%)" + suffix);
             h.progressBar.setProgress(percent);
 
             float alpha = item.isActive() ? 1f : 0.4f;

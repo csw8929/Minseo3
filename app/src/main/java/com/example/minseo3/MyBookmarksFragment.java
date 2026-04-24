@@ -71,16 +71,19 @@ public class MyBookmarksFragment extends Fragment {
             LocalProgressRepository.Entry progress = progressRepo.get(fileHash);
             String displayName;
             String filePath;
+            int totalChars;
             if (progress != null) {
                 File f = new File(progress.filePath);
                 displayName = stripTxt(f.getName());
                 filePath = progress.filePath;
+                totalChars = progress.totalChars;
             } else {
                 displayName = "(로컬에 파일 없음)";
                 filePath = null;
+                totalChars = 0;
             }
             for (Bookmark b : e.getValue()) {
-                items.add(new Item(fileHash, displayName, filePath, b));
+                items.add(new Item(fileHash, displayName, filePath, b, totalChars));
             }
         }
         items.sort(Comparator.comparingLong((Item it) -> it.bookmark.createdAt).reversed());
@@ -88,6 +91,11 @@ public class MyBookmarksFragment extends Fragment {
 
         boolean empty = items.isEmpty();
         tvEmpty.setVisibility(empty ? View.VISIBLE : View.GONE);
+
+        // 부모에게 개수 통지 — 섹션 타이틀 옆 괄호 표시.
+        if (getParentFragment() instanceof FavoritesFragment) {
+            ((FavoritesFragment) getParentFragment()).setMyBookmarkCount(items.size());
+        }
     }
 
     private void openBookmark(Item item) {
@@ -135,11 +143,18 @@ public class MyBookmarksFragment extends Fragment {
         /** null if this device doesn't have the book file. */
         final String filePath;
         final Bookmark bookmark;
-        Item(String fileHash, String bookTitle, String filePath, Bookmark bookmark) {
+        /** 0 if totalChars unknown (로컬에 진행 기록 없음). */
+        final int totalChars;
+        Item(String fileHash, String bookTitle, String filePath, Bookmark bookmark, int totalChars) {
             this.fileHash = fileHash;
             this.bookTitle = bookTitle;
             this.filePath = filePath;
             this.bookmark = bookmark;
+            this.totalChars = totalChars;
+        }
+        int percentRead() {
+            if (totalChars <= 0) return -1;
+            return (int) (bookmark.charOffset * 100L / totalChars);
         }
     }
 
@@ -165,7 +180,9 @@ public class MyBookmarksFragment extends Fragment {
             h.tvPreview.setText(item.bookmark.preview.isEmpty()
                     ? h.itemView.getContext().getString(R.string.bookmark_no_preview)
                     : item.bookmark.preview);
-            h.tvCreated.setText(fmt.format(new Date(item.bookmark.createdAt)));
+            String timeStr = fmt.format(new Date(item.bookmark.createdAt));
+            int pct = item.percentRead();
+            h.tvCreated.setText(pct >= 0 ? timeStr + " (" + pct + "%)" : timeStr);
 
             float alpha = item.filePath != null ? 1f : 0.4f;
             h.tvBook.setAlpha(alpha);
