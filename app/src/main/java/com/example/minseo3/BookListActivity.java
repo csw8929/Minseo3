@@ -252,6 +252,7 @@ public class BookListActivity extends AppCompatActivity {
         this.currentBookPath = filePath;
         this.currentBookStartOffset = startOffset;
         this.currentBookSkipConflict = skipConflict;
+        applyChromeForPosition(2);
         viewPager.setCurrentItem(2, true);
     }
 
