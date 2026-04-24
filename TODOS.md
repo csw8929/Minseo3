@@ -11,6 +11,20 @@ Completed items move to the bottom under `## Completed`.
 
 ---
 
+## Security (⚠ 배포 전 필수)
+
+### `DsFileConfig.PASS` 비우기 — 외부 배포 전 마지막 체크
+**Priority:** P0 (단 배포 직전에만, 그 전엔 개발 편의상 유지)
+**Why:** 현재 `app/src/main/java/com/example/minseo3/nas/DsFileConfig.java` 에
+NAS 비밀번호가 평문 상수로 들어있고 APK 빌드 시 함께 컴파일됨. `.gitignore` 는
+git 공유만 막지 APK 에는 그대로 포함됨 — 디컴파일 시 문자열로 노출.
+개인 개발/테스트 중에는 재설치마다 수동 입력 안 하려고 박아둠 (편의).
+**Acceptance (배포 직전):**
+- `DsFileConfig.PASS = ""` 로 비움 (또는 HOST/USER 등 신원 관련 필드도 함께)
+- 이 상태로 clean install 해서 첫 실행 시 NAS 설정 화면에서 수동 입력 필요한지 확인
+- 배포 APK 에 `strings` 로 "Swcha" 나 "@synology" 검색해 노출 없음 확인
+**Trigger:** 외부 배포 (공개 APK, 다른 사람에게 전달, Play Store 등록 등) 시점.
+
 ## NAS Sync
 
 ### 북마크 라벨/노트 (V2)

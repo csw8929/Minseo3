@@ -113,7 +113,7 @@ public class NasSyncManagerTest {
 
     private static final class InMemoryPrefs implements NasSyncManager.Prefs {
         boolean enabled = false;
-        String host = "", user = "", pass = "", path = "/소설/.minseo/", lanHost = "";
+        String host = "", user = "", pass = "", path = "/web/.minseo/", lanHost = "";
         int port = 5000, lanPort = 5000;
 
         @Override public boolean isEnabled()  { return enabled; }

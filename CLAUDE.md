@@ -81,6 +81,17 @@ This device exposes two displays (seen via `adb shell dumpsys SurfaceFlinger --d
 
 `screencap` without `-d` captures the default (HWC 3), which is the right one here. If you ever need the other display, pass `-d <id>` BEFORE `-p` (e.g., `screencap -d <id> -p /sdcard/out.png`); reversed order (`-p -d <id>`) is rejected by this device's screencap and only prints usage. Avoid `-a`: on this device it writes files without a `.png` suffix, which makes `screencap` save raw framebuffer bytes instead of a PNG.
 
+## Workflow preferences
+
+- **빌드까지만, 설치는 안 함.** 코드 변경 후 `./gradlew assembleDebug` 로 빌드 검증만
+  하고 APK 를 기기에 설치하지 않는다. 사용자가 "설치해줘" 등 명시적으로 요청했을
+  때만 `adb install`. (설치 테스트용 유틸은 `scripts/apk.sh` 참고.)
+- **커밋까지만, push 는 안 함.** 작업 완료 후 `git commit` 으로 로컬 히스토리에
+  남기되, `git push` 는 사용자가 명시적으로 요청했을 때만. PR 생성 (`/ship`,
+  `gh pr create` 등) 도 명시 요청이 있을 때만.
+- 이유: 사용자가 빌드/커밋 결과를 직접 확인한 뒤 기기 설치와 원격 push 를
+  본인 리듬으로 진행. 자동 설치/자동 push 는 "이 타이밍이 아닌데" 감을 유발.
+
 ## Skill routing
 
 When the user's request matches an available skill, ALWAYS invoke it using the Skill

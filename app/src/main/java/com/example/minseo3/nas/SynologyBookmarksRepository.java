@@ -55,6 +55,9 @@ public final class SynologyBookmarksRepository implements RemoteBookmarksReposit
 
     @Override
     public void push(String fileHash, List<Bookmark> bookmarks, Callback<Void> cb) {
+        String dir = resolveDir();
+        String name = fileName(fileHash);
+        int count = bookmarks == null ? 0 : bookmarks.size();
         try {
             JSONObject root = new JSONObject();
             root.put("version", SCHEMA_VERSION);
@@ -64,11 +67,12 @@ public final class SynologyBookmarksRepository implements RemoteBookmarksReposit
             root.put("bookmarks", arr);
             byte[] body = root.toString().getBytes(StandardCharsets.UTF_8);
 
+            Log.i(TAG, "SACH_NAS http upload bm: " + dir + "/" + name
+                    + " count=" + count + " (" + body.length + " bytes)");
             withSidAndRetry(sid -> {
                 String url = DsAuth.apiBase() + "/webapi/entry.cgi?_sid="
                         + URLEncoder.encode(sid, "UTF-8");
-                String resp = DsHttp.uploadFile(url, resolveDir(),
-                        fileName(fileHash), body, sid);
+                String resp = DsHttp.uploadFile(url, dir, name, body, sid);
                 JSONObject json = new JSONObject(resp);
                 if (!json.optBoolean("success", false)) {
                     int code = errorCode(json);
@@ -76,9 +80,11 @@ public final class SynologyBookmarksRepository implements RemoteBookmarksReposit
                 }
                 return null;
             });
+            Log.i(TAG, "SACH_NAS http upload bm ok: " + dir + "/" + name);
             cb.onResult(null);
         } catch (Exception e) {
-            Log.w(TAG, "bm push failed: " + e.getMessage());
+            Log.w(TAG, "SACH_NAS http upload bm failed: " + dir + "/" + name
+                    + " msg=" + e.getMessage());
             cb.onError(e.getMessage());
         }
     }
@@ -88,6 +94,7 @@ public final class SynologyBookmarksRepository implements RemoteBookmarksReposit
     @Override
     public void fetchOne(String fileHash, Callback<List<Bookmark>> cb) {
         String path = resolveDir() + "/" + fileName(fileHash);
+        Log.i(TAG, "SACH_NAS http download bm: " + path);
         try {
             List<Bookmark> list = withSidAndRetry(sid -> {
                 String url = DsAuth.apiBase() + "/webapi/entry.cgi"
@@ -125,9 +132,10 @@ public final class SynologyBookmarksRepository implements RemoteBookmarksReposit
                     return Collections.<Bookmark>emptyList();
                 }
             });
+            Log.i(TAG, "SACH_NAS http download bm done: " + path + " count=" + list.size());
             cb.onResult(list);
         } catch (Exception e) {
-            Log.w(TAG, "bm fetchOne failed (" + fileHash + "): " + e.getMessage());
+            Log.w(TAG, "SACH_NAS http download bm failed: " + path + " msg=" + e.getMessage());
             cb.onError(e.getMessage());
         }
     }

@@ -7,28 +7,65 @@ Versions use 4-digit `MAJOR.MINOR.PATCH.MICRO`.
 ## [0.3.0.0] - 2026-04-24
 
 ### Added
-- 크로스 디바이스 북마크 V1. 리더 하단에 노란 별(⭐) 아이콘 — 탭하면 이 책의
-  북마크 시트가 뜨고, 현재 페이지 북마크 추가/제거 토글 + 이 책 북마크 목록에서
-  해당 charOffset 으로 바로 점프. 별은 현재 페이지가 북마크 상태면 채움, 아니면 테두리.
-- "즐겨찾기" 탭 (기존 "NAS" 탭 리네임). 두 섹션: "내 북마크" (모든 책 북마크를
-  시간순 플랫 리스트, 탭하면 해당 책 열고 charOffset 이동) + "다른 단말 진행"
-  (다른 기기에서 올린 읽기 기록만, 내 기기는 제외).
-- NAS 를 통한 북마크 양방향 동기화. 리더 열 때 `bm_{fileHash}.json` pull → 로컬과
-  union 머지 → UI 자동 갱신. 북마크 토글/삭제 시 1 초 debounce 후 자동 push.
-- 리스트 항목 길게 누르기 → 제거 메뉴 → 즉시 반영 (내 북마크, 다른 단말 진행 둘 다).
-  다른 단말 항목 제거는 NAS 에서 실제 `pos_{fileHash}.json` 삭제까지 수행.
-- `Bookmark` 값 객체 + deterministic id (`sha1(fileHash + ':' + charOffset)` 16 hex) —
-  두 기기가 같은 페이지 북마크를 각각 만들어도 자동으로 같은 id 로 수렴, 중복 없음.
-- Soft-delete (tombstone) 전파. 한 기기 삭제 → NAS → 다른 기기 pull union — 좀비
-  레코드 부활 없이 확실히 제거.
-- `BookmarksConflictResolver` union 로직 유닛 테스트 6 건 — id collision / tombstone /
-  재생성 / 이종 기기 페이지네이션 / 경계 케이스.
+- **크로스 디바이스 북마크 V1.** 리더 하단에 노란 별(⭐) 아이콘 — 탭하면 현재 페이지
+  북마크 즉시 토글 (BottomSheet 없음), 별은 북마크 상태면 채움/아니면 테두리.
+  `Bookmark` 값 객체 + deterministic id (`sha1(fileHash + ':' + charOffset)` 16 hex) —
+  두 기기가 같은 페이지 북마크를 각각 만들어도 같은 id 로 자동 수렴.
+  Soft-delete (tombstone) 전파로 좀비 부활 방지. `BookmarksConflictResolver` 유닛
+  테스트 6 건.
+- **"즐겨찾기" 탭.** 두 섹션: "내 북마크" (모든 책 북마크 시간순 플랫 리스트, 탭하면
+  해당 책 charOffset 으로 점프) + "다른 단말 진행" (내 기기 제외 NAS 읽기 기록).
+  섹션 타이틀 옆에 항목 개수 · 리스트 항목에 진행률 % 표시.
+- **리더 탭 스와이프 내비.** 즐겨찾기 ↔ 리더 좌우 스와이프. ViewPager2 의 숨김 3번째
+  페이지로 `ReaderFragment` 통합 (구 `ReaderActivity` 제거) — Activity 전환의 pre-canned
+  애니 한계를 벗어나 드래그 중 두 화면 동시 노출 감각 확보.
+- **리더 풀스크린 + edge-to-edge.** 리더 페이지 진입 시 AppBar 숨김, status/nav bar 자동
+  은닉, swipe-reveal 허용. 스와이프 중 AppBar 페이드 아웃. 하단에 현재 파일명 표시.
+- **앱 전체 테마 통일.** 리더에서 바꾼 배경/글자색이 "내 책" / "즐겨찾기" 탭에도 즉시
+  반영 (`ThemePrefs` 앱 전역 공유). 리스트 항목 / divider 색도 배경 휘도에 따라 자동 조정.
+- **설정 → 탭기능 스위칭 토글.** 리더 좌/우 화면 탭의 전/후 이동 방향을 반대로 바꾸는
+  옵션 (`reader_prefs.tap_swap`).
+- **콜드 스타트 진입 규칙.** 런치 시 NAS 최신(타 기기) > Local 최신이면 "이어
+  보시겠습니까?" 팝업, Local 최신이 이기면 마지막 종료가 리더 탭이었는지에 따라
+  자동 리더 진입 or 리스트 유지. 회전 복원 시엔 스킵. `AppSessionPrefs.last_exit_mode` +
+  `LocalProgressRepository.getMostRecent`.
+- **NAS `pos_*.json` 실 삭제.** 즐겨찾기의 "다른 단말 진행" 항목 길게 눌러 NAS 에서 삭제
+  (`SynologyFileStationRepository.delete`).
+- **북마크 등록/해제/삭제 토스트 피드백.** "북마크 등록됨 / 해제됨 / 삭제됨" 표시.
+- **작업 문서** (`docs/`). 저장 구조 (NAS / 로컬 파일 스키마), 리더 진입 시 점프 위치
+  결정 규칙 (ConflictResolver + 콜드 스타트 런치 결정), NAS 안정화 디버그 기록.
 
 ### Changed
 - `SynologyFileStationRepository` 가 새로 추출된 `SynologyDsmHelper` 의 공용 HTTP
   헬퍼 (SID 재시도, 에러 코드, 경로 정규화) 를 쓰도록 리팩터. Pos / 북마크 두 레포가
-  같은 헬퍼 공유 — 중복 제거.
-- 토글/삭제 시 토스트 · Snackbar 없음 — 별 아이콘 flip 과 리스트 갱신만으로 피드백.
+  공유 — 중복 제거.
+- NAS 기본 경로 통일: `/소설/.minseo/` / `/video/.minseo/` → `/web/.minseo/`. 코드 전체
+  + prefs 시드 + UI hint 일관.
+- NAS 로그 관찰용 prefix 추가 (`SACH_NAS ...`). 모든 NAS read/write 경로에서
+  dispatch · HTTP · 결과를 tag=`NasSync` 로 찍음 → `logcat | grep SACH_NAS` 로 한 번에.
+- `apk.sh` — 연결 adb 디바이스 install/uninstall/clear data/logcat grep 메뉴 통합.
+- 디버그 APK 파일명 `app-debug.apk` → `Minseo3.apk`.
+
+### Fixed
+- **리더에서 추가한 북마크가 즐겨찾기 탭에 안 뜨던 문제.** `ReaderFragment` 와
+  `MyBookmarksFragment` 가 각자 `BookmarksRepository` 인스턴스를 만들어 in-memory
+  캐시가 분리되어 있었음. `BookListActivity.getBookmarksRepo()` 로 단일 인스턴스 공유.
+- **가로/세로 회전 시 리더 글이 사라지던 문제.** `onSaveInstanceState` / 복원 경로
+  정비 + `BookListActivity.markConflictResolvedForCurrentBook` 로 NAS 충돌 다이얼로그
+  재프롬프트 방지.
+- **가로 모드에서 설정 BottomSheet 가 잘리던 문제.** `STATE_EXPANDED` 강제 +
+  `setSkipCollapsed(true)` + `NestedScrollView` 로 펼침.
+- **리더 전체화면에서 상단 status bar 영역이 비어있던 문제.** `CoordinatorLayout` +
+  `ScrollingViewBehavior` 를 `LinearLayout` 수직으로 교체해 AppBar GONE 시 상단 margin
+  제거.
+- **APK 내 NAS 비밀번호 노출 주의** — `DsFileConfig.PASS` 는 `.gitignore` 로 git 공유만
+  막고 APK 에는 포함됨. 외부 배포 전 `PASS = ""` 로 비우는 것이 **P0** (TODOS 참조).
+
+### Tests / Build
+- `testOptions { unitTests.isReturnDefaultValues = true }` — `android.util.Log` not-mocked
+  런타임 예외로 터지던 JVM 단위 테스트 정상화.
+- `BookmarksConflictResolverTest` 6 건 (id collision · tombstone · 재생성 · 이종 기기
+  페이지네이션 · 경계 케이스).
 
 ## [0.2.0.0] - 2026-04-22
 

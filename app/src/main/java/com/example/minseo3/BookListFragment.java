@@ -1,6 +1,5 @@
 package com.example.minseo3;
 
-import android.content.Intent;
 import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -23,7 +22,12 @@ import java.util.List;
  * "내 책" 탭 — 로컬 /소설/ 폴더 트리. 중첩 폴더 네비게이션 지원.
  * Activity 의 뒤로가기가 {@link #goUpIfPossible()} 을 먼저 호출해 폴더 스택을 소비.
  */
-public class BookListFragment extends Fragment {
+public class BookListFragment extends Fragment implements BookListActivity.ThemedFragment {
+
+    @Override public void applyTheme() {
+        View v = getView();
+        if (v != null) v.setBackgroundColor(ThemePrefs.bgColor(requireContext()));
+    }
 
     private RecyclerView recyclerView;
     private TextView tvEmpty;
@@ -48,6 +52,7 @@ public class BookListFragment extends Fragment {
         recyclerView.addItemDecoration(new DividerItemDecoration(requireContext(), DividerItemDecoration.VERTICAL));
         adapter = new BookAdapter();
         recyclerView.setAdapter(adapter);
+        applyTheme();
     }
 
     @Override
@@ -103,13 +108,10 @@ public class BookListFragment extends Fragment {
     }
 
     private void openBook(BookItem item) {
-        Intent intent = new Intent(requireContext(), ReaderActivity.class);
-        intent.putExtra(ReaderActivity.EXTRA_FILE_PATH, item.file.getAbsolutePath());
-        if (item.entry != null) intent.putExtra(ReaderActivity.EXTRA_CHAR_OFFSET, item.entry.charOffset);
-        if (requireActivity() instanceof BookListActivity) {
-            ((BookListActivity) requireActivity()).noteOpenedBook(item.file.getAbsolutePath());
-        }
-        ReaderActivity.startReaderFromFragment(this, intent);
+        if (!(requireActivity() instanceof BookListActivity)) return;
+        BookListActivity host = (BookListActivity) requireActivity();
+        int startOffset = (item.entry != null) ? item.entry.charOffset : 0;
+        host.openBook(item.file.getAbsolutePath(), startOffset, /*skipConflict*/ false);
     }
 
     private void openFolder(BookItem item) {
@@ -139,6 +141,10 @@ public class BookListFragment extends Fragment {
         @Override
         public void onBindViewHolder(@NonNull VH h, int pos) {
             BookItem item = items.get(pos);
+            int textColor = ThemePrefs.textColor(h.itemView.getContext());
+            h.tvTitle.setTextColor(textColor);
+            h.tvInfo.setTextColor(textColor);
+
             if (item.isDirectory) {
                 h.tvTitle.setText("📁 " + item.file.getName());
                 h.tvInfo.setText("폴더");

@@ -1,9 +1,9 @@
 package com.example.minseo3;
 
-import android.content.Intent;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.Log;
 import android.text.format.DateUtils;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -30,7 +30,13 @@ import java.util.List;
 import java.util.Map;
 
 /** "NAS" 탭 — 모든 기기에서 올라온 pos_*.json 목록. */
-public class NasHistoryFragment extends Fragment {
+public class NasHistoryFragment extends Fragment implements BookListActivity.ThemedFragment {
+
+    @Override public void applyTheme() {
+        View v = getView();
+        if (v != null) v.setBackgroundColor(ThemePrefs.bgColor(requireContext()));
+        if (adapter != null) adapter.notifyDataSetChanged();
+    }
 
     private RecyclerView recyclerView;
     private ProgressBar progress;
@@ -56,6 +62,7 @@ public class NasHistoryFragment extends Fragment {
         recyclerView.addItemDecoration(new DividerItemDecoration(requireContext(), DividerItemDecoration.VERTICAL));
         adapter = new NasAdapter();
         recyclerView.setAdapter(adapter);
+        applyTheme();
     }
 
     @Override
@@ -65,7 +72,9 @@ public class NasHistoryFragment extends Fragment {
     }
 
     private void refresh() {
+        Log.i("NasSync", "SACH_NAS favorites '다른 단말 진행' refresh start");
         if (!nas.isEnabled()) {
+            Log.i("NasSync", "SACH_NAS favorites refresh skipped: nas disabled");
             showMessage("NAS 동기화가 꺼져 있습니다.\n우측 상단 메뉴 → NAS 설정에서 활성화하세요.");
             return;
         }
@@ -89,13 +98,17 @@ public class NasHistoryFragment extends Fragment {
     private void onFetched(Map<String, RemotePosition> map) {
         String myDeviceId = nas.deviceId();
         List<NasItem> items = new ArrayList<>();
+        int excludedOwn = 0;
         for (Map.Entry<String, RemotePosition> e : map.entrySet()) {
             RemotePosition p = e.getValue();
             // 이 섹션은 "다른 단말" 전용 — 내 기기에서 올린 항목은 제외한다.
-            if (myDeviceId != null && myDeviceId.equals(p.deviceId)) continue;
+            if (myDeviceId != null && myDeviceId.equals(p.deviceId)) { excludedOwn++; continue; }
             File local = FileUtils.findLocalByNameAndSize(p.fileName, p.fileSize);
             items.add(new NasItem(e.getKey(), p, local));
         }
+        Log.i("NasSync", "SACH_NAS favorites render: total=" + map.size()
+                + " myDeviceId=" + myDeviceId + " excludedOwn=" + excludedOwn
+                + " shown=" + items.size());
         items.sort(Comparator.comparingLong((NasItem it) -> it.pos.lastUpdatedEpoch).reversed());
         adapter.setItems(items);
 
@@ -105,6 +118,11 @@ public class NasHistoryFragment extends Fragment {
             recyclerView.setVisibility(View.VISIBLE);
             progress.setVisibility(View.GONE);
             tvStatus.setVisibility(View.GONE);
+        }
+
+        // 부모에게 개수 통지 (즐겨찾기 섹션 타이틀 옆 괄호).
+        if (getParentFragment() instanceof FavoritesFragment) {
+            ((FavoritesFragment) getParentFragment()).setOtherDeviceCount(items.size());
         }
     }
 
@@ -128,7 +146,12 @@ public class NasHistoryFragment extends Fragment {
             if (mi.getItemId() == R.id.action_delete) {
                 nas.deletePosition(item.fileHash, new RemoteProgressRepository.Callback<Void>() {
                     @Override public void onResult(Void v) {
-                        mainHandler.post(() -> refresh());
+                        mainHandler.post(() -> {
+                            Toast.makeText(requireContext(),
+                                    R.string.entry_deleted_toast,
+                                    Toast.LENGTH_SHORT).show();
+                            refresh();
+                        });
                     }
                     @Override public void onError(String message) {
                         mainHandler.post(() -> Toast.makeText(requireContext(),
@@ -148,15 +171,10 @@ public class NasHistoryFragment extends Fragment {
                     Toast.LENGTH_SHORT).show();
             return;
         }
-        Intent intent = new Intent(requireContext(), ReaderActivity.class);
-        intent.putExtra(ReaderActivity.EXTRA_FILE_PATH, item.localFile.getAbsolutePath());
-        intent.putExtra(ReaderActivity.EXTRA_CHAR_OFFSET, item.pos.charOffset);
+        if (!(requireActivity() instanceof BookListActivity)) return;
         // NAS 탭에서 진입 — 이미 NAS offset 을 가지고 있으므로 충돌 해결 생략.
-        intent.putExtra(ReaderActivity.EXTRA_SKIP_CONFLICT_RESOLVE, true);
-        if (requireActivity() instanceof BookListActivity) {
-            ((BookListActivity) requireActivity()).noteOpenedBook(item.localFile.getAbsolutePath());
-        }
-        ReaderActivity.startReaderFromFragment(this, intent);
+        ((BookListActivity) requireActivity())
+                .openBook(item.localFile.getAbsolutePath(), item.pos.charOffset, /*skipConflict*/ true);
     }
 
     // ── Data model ──────────────────────────────────────────────────────────
@@ -199,8 +217,13 @@ public class NasHistoryFragment extends Fragment {
             String deviceShort = item.pos.deviceId.length() >= 4
                     ? item.pos.deviceId.substring(0, 4) : item.pos.deviceId;
             String suffix = item.isActive() ? "" : " · 이 기기에 파일 없음";
-            h.tvInfo.setText(percent + "% · 기기 " + deviceShort + " · " + ago + suffix);
+            // 시간 옆에 괄호로 % — 사용자 요청 형식.
+            h.tvInfo.setText("기기 " + deviceShort + " · " + ago + " (" + percent + "%)" + suffix);
             h.progressBar.setProgress(percent);
+
+            int textColor = ThemePrefs.textColor(h.itemView.getContext());
+            h.tvTitle.setTextColor(textColor);
+            h.tvInfo.setTextColor(textColor);
 
             float alpha = item.isActive() ? 1f : 0.4f;
             h.tvTitle.setAlpha(alpha);

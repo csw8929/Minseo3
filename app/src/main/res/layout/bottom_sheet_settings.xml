@@ -1,6 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout
+<androidx.core.widget.NestedScrollView
     xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:fillViewport="false">
+
+<LinearLayout
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
@@ -92,4 +97,36 @@
             android:background="@drawable/theme_circle_black" />
     </LinearLayout>
 
+    <!-- 탭 영역 좌/우 스위칭 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingTop="4dp"
+        android:paddingBottom="4dp">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="탭기능 스위칭"
+            android:textStyle="bold"
+            android:textSize="15sp" />
+
+        <com.google.android.material.materialswitch.MaterialSwitch
+            android:id="@+id/switch_tap_swap"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content" />
+    </LinearLayout>
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:text="켜면 왼쪽 탭이 다음 페이지, 오른쪽 탭이 이전 페이지로 바뀝니다."
+        android:textSize="12sp"
+        android:textColor="?android:attr/textColorSecondary" />
+
 </LinearLayout>
+</androidx.core.widget.NestedScrollView>

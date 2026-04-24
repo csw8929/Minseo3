@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Minseo3 APK 매니저 — 연결된 adb 디바이스에 APK 설치 / 앱 데이터 삭제.
+# Minseo3 APK 매니저 — 연결된 adb 디바이스에 APK 설치 / 제거 / logcat.
 # Git Bash (Windows) 또는 Linux / macOS 어디에서든 실행 가능.
 #
 # 사용법:
@@ -8,13 +8,13 @@
 #
 # 변수:
 #   APK_FILE  — 설치할 APK 경로 (절대 또는 스크립트 기준 상대). 기본값은
-#               ./app/build/outputs/apk/debug/app-debug.apk
-#   PACKAGE   — 데이터 삭제 대상 패키지.
+#               ./app/build/outputs/apk/debug/Minseo3.apk
+#   PACKAGE   — 설치/제거 대상 패키지.
 #
 set -u
 
 # ── 설정 ────────────────────────────────────────────────────────────────────
-APK_FILE="${APK_FILE:-app/build/outputs/apk/debug/app-debug.apk}"
+APK_FILE="${APK_FILE:-app/build/outputs/apk/debug/Minseo3.apk}"
 PACKAGE="${PACKAGE:-com.example.minseo3}"
 
 # 알려진 디바이스 시리얼 → 사람 이름. 목록에 없는 기기는 getprop 모델명으로 폴백.
@@ -82,16 +82,35 @@ install_on_device() {
   adb -s "$serial" install -r "$APK_FILE"
 }
 
-clear_on_device() {
+uninstall_on_device() {
   local serial="$1"
-  echo "  → $(display_name "$serial") 에서 $PACKAGE 데이터 삭제 중..."
-  adb -s "$serial" shell pm clear "$PACKAGE"
+  echo "  → $(display_name "$serial") 에서 $PACKAGE 제거 중..."
+  adb -s "$serial" uninstall "$PACKAGE"
+}
+
+logcat_on_device() {
+  local serial="$1"
+  read -rp "  grep pattern (빈 값=취소)> " pattern
+  if [ -z "$pattern" ]; then
+    echo "  취소됨."
+    return
+  fi
+  echo "  → $(display_name "$serial") logcat -c (버퍼 초기화)..."
+  adb -s "$serial" logcat -c
+  echo "  → logcat | grep '$pattern'  — Ctrl+C 로 중단"
+  echo ""
+  # 파이프라인 중단 (Ctrl+C) 시 스크립트 탈출 방지 — 메뉴로 복귀.
+  trap ':' INT
+  adb -s "$serial" logcat | grep --line-buffered -- "$pattern" || true
+  trap - INT
 }
 
 # 디바이스 선택 서브메뉴. callback 함수 이름을 받아 선택된 시리얼로 호출.
+# 세 번째 인자 "all" 이면 마지막에 "a) 전체" 추가 — 모든 디바이스에 callback 반복.
 pick_device_and_run() {
   local title="$1"
   local callback="$2"
+  local include_all="${3:-}"
   local devices
   mapfile -t devices < <(list_devices)
   if [ "${#devices[@]}" -eq 0 ]; then
@@ -106,10 +125,21 @@ pick_device_and_run() {
     echo "  $i) $(display_name "$s")"
     i=$((i+1))
   done
+  if [ "$include_all" = "all" ]; then
+    echo "  a) 전체"
+  fi
   echo "  0) 취소"
   echo ""
-  read -rp "선택> " choice
+  read -rsn1 -p "선택> " choice
+  echo "$choice"
   if [ -z "$choice" ] || [ "$choice" = "0" ]; then
+    return
+  fi
+  if [ "$include_all" = "all" ] && [[ "$choice" =~ ^[aA]$ ]]; then
+    echo ""
+    for s in "${devices[@]}"; do
+      "$callback" "$s"
+    done
     return
   fi
   if ! [[ "$choice" =~ ^[0-9]+$ ]]; then
@@ -125,37 +155,14 @@ pick_device_and_run() {
   "$callback" "${devices[$idx]}"
 }
 
-action_install_device() { pick_device_and_run "install — 디바이스 선택" install_on_device; }
-action_clear_device()   { pick_device_and_run "clear data — 디바이스 선택" clear_on_device; }
+action_install()   { pick_device_and_run "install — 디바이스 선택"   install_on_device   all; }
+action_uninstall() { pick_device_and_run "uninstall — 디바이스 선택" uninstall_on_device all; }
+action_logcat()    { pick_device_and_run "logcat grep — 디바이스 선택" logcat_on_device; }
 
-action_install_all() {
-  local devices
-  mapfile -t devices < <(list_devices)
-  if [ "${#devices[@]}" -eq 0 ]; then
-    echo ""
-    echo "  (연결된 디바이스 없음)"
-    return
-  fi
+action_build() {
   echo ""
-  echo "== install all ($((${#devices[@]})) devices) =="
-  for s in "${devices[@]}"; do
-    install_on_device "$s"
-  done
-}
-
-action_clear_all() {
-  local devices
-  mapfile -t devices < <(list_devices)
-  if [ "${#devices[@]}" -eq 0 ]; then
-    echo ""
-    echo "  (연결된 디바이스 없음)"
-    return
-  fi
-  echo ""
-  echo "== clear all data ($((${#devices[@]})) devices) =="
-  for s in "${devices[@]}"; do
-    clear_on_device "$s"
-  done
+  echo "== build — ./gradlew assembleDebug =="
+  ./gradlew assembleDebug
 }
 
 # ── 메인 루프 ───────────────────────────────────────────────────────────────
@@ -169,21 +176,22 @@ main_menu() {
     echo "│  Package: $PACKAGE"
     echo "├────────────────────────────────────────────────────┤"
     echo "│  1) devices             — 연결된 디바이스 목록"
-    echo "│  2) install device      — 디바이스 선택해 설치"
-    echo "│  3) install all devices — 전체 설치"
-    echo "│  4) clear data          — 디바이스 선택해 데이터 삭제"
-    echo "│  5) clear all data      — 전체 데이터 삭제"
+    echo "│  2) install             — 디바이스 선택 후 설치 (a=전체)"
+    echo "│  3) uninstall           — 디바이스 선택 후 제거 (a=전체)"
+    echo "│  8) logcat grep         — 디바이스 선택 + 패턴으로 grep"
+    echo "│  9) build               — ./gradlew assembleDebug"
     echo "│  0) exit"
     echo "└────────────────────────────────────────────────────┘"
-    read -rp "> " choice
+    read -rsn1 -p "> " choice
+    echo "$choice"
     case "$choice" in
       1) action_list_devices ;;
-      2) action_install_device ;;
-      3) action_install_all ;;
-      4) action_clear_device ;;
-      5) action_clear_all ;;
-      0|q|quit|exit) echo "bye"; exit 0 ;;
-      "") ;;  # 빈 입력은 조용히 넘김
+      2) action_install ;;
+      3) action_uninstall ;;
+      8) action_logcat ;;
+      9) action_build ;;
+      0|q) echo "bye"; exit 0 ;;
+      "") ;;  # 빈 입력(Enter) 은 조용히 넘김
       *) echo "  잘못된 선택: $choice" ;;
     esac
   done

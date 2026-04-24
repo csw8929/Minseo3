@@ -6,6 +6,12 @@
     <string name="bookmark_delete">삭제하기</string>
     <string name="bookmark_no_preview">(프리뷰 없음)</string>
 
+    <!-- Toast feedback -->
+    <string name="bookmark_registered">북마크 등록됨</string>
+    <string name="bookmark_unregistered">북마크 해제됨</string>
+    <string name="bookmark_deleted_toast">북마크 삭제됨</string>
+    <string name="entry_deleted_toast">삭제됨</string>
+
     <string name="back_to_list">목록으로</string>
 
     <!-- Favorites tab -->

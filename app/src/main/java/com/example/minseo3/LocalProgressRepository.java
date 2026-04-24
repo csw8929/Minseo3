@@ -45,6 +45,15 @@ public class LocalProgressRepository {
         return list;
     }
 
+    /** Most recently read entry (max lastRead), or null if no records. */
+    public synchronized Entry getMostRecent() {
+        Entry best = null;
+        for (Entry e : cache.values()) {
+            if (best == null || e.lastRead > best.lastRead) best = e;
+        }
+        return best;
+    }
+
     private void load() {
         if (!progressFile.exists()) return;
         try (FileReader reader = new FileReader(progressFile)) {

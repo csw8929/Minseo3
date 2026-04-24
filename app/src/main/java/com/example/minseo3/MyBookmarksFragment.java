@@ -1,6 +1,5 @@
 package com.example.minseo3;
 
-import android.content.Intent;
 import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -32,11 +31,17 @@ import java.util.Map;
  * 책 제목은 {@link LocalProgressRepository} 에서 fileHash → filePath 를 조회해 파생.
  * 로컬에 파일이 없는 (다른 기기에서만 본) 책은 탭 시 토스트.
  */
-public class MyBookmarksFragment extends Fragment {
+public class MyBookmarksFragment extends Fragment implements BookListActivity.ThemedFragment {
 
     private Adapter adapter;
     private TextView tvEmpty;
     private BookmarksRepository bmRepo;
+
+    @Override public void applyTheme() {
+        View v = getView();
+        if (v != null) v.setBackgroundColor(ThemePrefs.bgColor(requireContext()));
+        if (adapter != null) adapter.notifyDataSetChanged();
+    }
 
     @Nullable @Override
     public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container,
@@ -53,6 +58,7 @@ public class MyBookmarksFragment extends Fragment {
         rv.addItemDecoration(new DividerItemDecoration(requireContext(), DividerItemDecoration.VERTICAL));
         adapter = new Adapter();
         rv.setAdapter(adapter);
+        applyTheme();
     }
 
     @Override
@@ -62,7 +68,12 @@ public class MyBookmarksFragment extends Fragment {
     }
 
     private void refresh() {
-        if (bmRepo == null) bmRepo = new BookmarksRepository(requireContext());
+        // 호스트 Activity 의 공유 repo 사용 — 리더에서 toggle 한 결과를 바로 봄.
+        if (getActivity() instanceof BookListActivity) {
+            bmRepo = ((BookListActivity) getActivity()).getBookmarksRepo();
+        } else if (bmRepo == null) {
+            bmRepo = new BookmarksRepository(requireContext());
+        }
         LocalProgressRepository progressRepo = new LocalProgressRepository(requireContext());
 
         Map<String, List<Bookmark>> byHash = bmRepo.allAliveByHash();
@@ -72,16 +83,19 @@ public class MyBookmarksFragment extends Fragment {
             LocalProgressRepository.Entry progress = progressRepo.get(fileHash);
             String displayName;
             String filePath;
+            int totalChars;
             if (progress != null) {
                 File f = new File(progress.filePath);
                 displayName = stripTxt(f.getName());
                 filePath = progress.filePath;
+                totalChars = progress.totalChars;
             } else {
                 displayName = "(로컬에 파일 없음)";
                 filePath = null;
+                totalChars = 0;
             }
             for (Bookmark b : e.getValue()) {
-                items.add(new Item(fileHash, displayName, filePath, b));
+                items.add(new Item(fileHash, displayName, filePath, b, totalChars));
             }
         }
         items.sort(Comparator.comparingLong((Item it) -> it.bookmark.createdAt).reversed());
@@ -89,6 +103,11 @@ public class MyBookmarksFragment extends Fragment {
 
         boolean empty = items.isEmpty();
         tvEmpty.setVisibility(empty ? View.VISIBLE : View.GONE);
+
+        // 부모에게 개수 통지 — 섹션 타이틀 옆 괄호 표시.
+        if (getParentFragment() instanceof FavoritesFragment) {
+            ((FavoritesFragment) getParentFragment()).setMyBookmarkCount(items.size());
+        }
     }
 
     private void openBookmark(Item item) {
@@ -97,14 +116,9 @@ public class MyBookmarksFragment extends Fragment {
                     "이 기기에 해당 책 파일이 없습니다", Toast.LENGTH_SHORT).show();
             return;
         }
-        Intent intent = new Intent(requireContext(), ReaderActivity.class);
-        intent.putExtra(ReaderActivity.EXTRA_FILE_PATH, item.filePath);
-        intent.putExtra(ReaderActivity.EXTRA_CHAR_OFFSET, item.bookmark.charOffset);
-        intent.putExtra(ReaderActivity.EXTRA_SKIP_CONFLICT_RESOLVE, true);
-        if (requireActivity() instanceof BookListActivity) {
-            ((BookListActivity) requireActivity()).noteOpenedBook(item.filePath);
-        }
-        ReaderActivity.startReaderFromFragment(this, intent);
+        if (!(requireActivity() instanceof BookListActivity)) return;
+        ((BookListActivity) requireActivity())
+                .openBook(item.filePath, item.bookmark.charOffset, /*skipConflict*/ true);
     }
 
     private void showDeleteMenu(View anchor, Item item) {
@@ -112,8 +126,16 @@ public class MyBookmarksFragment extends Fragment {
         menu.getMenuInflater().inflate(R.menu.menu_item_delete, menu.getMenu());
         menu.setOnMenuItemClickListener(mi -> {
             if (mi.getItemId() == R.id.action_delete) {
-                if (bmRepo == null) bmRepo = new BookmarksRepository(requireContext());
-                bmRepo.deleteById(item.fileHash, item.bookmark.id);
+                if (bmRepo == null && getActivity() instanceof BookListActivity) {
+                    bmRepo = ((BookListActivity) getActivity()).getBookmarksRepo();
+                }
+                if (bmRepo == null) return true;
+                boolean removed = bmRepo.deleteById(item.fileHash, item.bookmark.id);
+                if (removed) {
+                    Toast.makeText(requireContext(),
+                            R.string.bookmark_deleted_toast,
+                            Toast.LENGTH_SHORT).show();
+                }
                 refresh();
                 return true;
             }
@@ -136,11 +158,18 @@ public class MyBookmarksFragment extends Fragment {
         /** null if this device doesn't have the book file. */
         final String filePath;
         final Bookmark bookmark;
-        Item(String fileHash, String bookTitle, String filePath, Bookmark bookmark) {
+        /** 0 if totalChars unknown (로컬에 진행 기록 없음). */
+        final int totalChars;
+        Item(String fileHash, String bookTitle, String filePath, Bookmark bookmark, int totalChars) {
             this.fileHash = fileHash;
             this.bookTitle = bookTitle;
             this.filePath = filePath;
             this.bookmark = bookmark;
+            this.totalChars = totalChars;
+        }
+        int percentRead() {
+            if (totalChars <= 0) return -1;
+            return (int) (bookmark.charOffset * 100L / totalChars);
         }
     }
 
@@ -166,7 +195,14 @@ public class MyBookmarksFragment extends Fragment {
             h.tvPreview.setText(item.bookmark.preview.isEmpty()
                     ? h.itemView.getContext().getString(R.string.bookmark_no_preview)
                     : item.bookmark.preview);
-            h.tvCreated.setText(fmt.format(new Date(item.bookmark.createdAt)));
+            String timeStr = fmt.format(new Date(item.bookmark.createdAt));
+            int pct = item.percentRead();
+            h.tvCreated.setText(pct >= 0 ? timeStr + " (" + pct + "%)" : timeStr);
+
+            int textColor = ThemePrefs.textColor(h.itemView.getContext());
+            h.tvBook.setTextColor(textColor);
+            h.tvPreview.setTextColor(textColor);
+            h.tvCreated.setTextColor(textColor);
 
             float alpha = item.filePath != null ? 1f : 0.4f;
             h.tvBook.setAlpha(alpha);
