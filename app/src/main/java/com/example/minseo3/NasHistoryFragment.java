@@ -72,9 +72,9 @@ public class NasHistoryFragment extends Fragment implements BookListActivity.The
     }
 
     private void refresh() {
-        Log.i("NasSync", "SACH favorites '다른 단말 진행' refresh start");
+        Log.i("NasSync", "SACH_NAS favorites '다른 단말 진행' refresh start");
         if (!nas.isEnabled()) {
-            Log.i("NasSync", "SACH favorites refresh skipped: nas disabled");
+            Log.i("NasSync", "SACH_NAS favorites refresh skipped: nas disabled");
             showMessage("NAS 동기화가 꺼져 있습니다.\n우측 상단 메뉴 → NAS 설정에서 활성화하세요.");
             return;
         }
@@ -106,7 +106,7 @@ public class NasHistoryFragment extends Fragment implements BookListActivity.The
             File local = FileUtils.findLocalByNameAndSize(p.fileName, p.fileSize);
             items.add(new NasItem(e.getKey(), p, local));
         }
-        Log.i("NasSync", "SACH favorites render: total=" + map.size()
+        Log.i("NasSync", "SACH_NAS favorites render: total=" + map.size()
                 + " myDeviceId=" + myDeviceId + " excludedOwn=" + excludedOwn
                 + " shown=" + items.size());
         items.sort(Comparator.comparingLong((NasItem it) -> it.pos.lastUpdatedEpoch).reversed());

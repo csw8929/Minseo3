@@ -48,7 +48,7 @@ public final class SynologyFileStationRepository implements RemoteProgressReposi
             byte[] body = pos.toJson().toString().getBytes(StandardCharsets.UTF_8);
             String dir = resolvePosDir();
             String name = "pos_" + fileHash + ".json";
-            Log.i(TAG, "SACH http upload pos: " + dir + "/" + name + " (" + body.length + " bytes)");
+            Log.i(TAG, "SACH_NAS http upload pos: " + dir + "/" + name + " (" + body.length + " bytes)");
             withSidAndRetry(sid -> {
                 // Upload 엔드포인트는 _sid 를 URL 쿼리로도 받아야 함 — form field 만 전달하면
                 // DSM 이 code 119 (SID not found) 로 거부함. Minseo21 DsPlayback 주석 참고.
@@ -62,10 +62,10 @@ public final class SynologyFileStationRepository implements RemoteProgressReposi
                 }
                 return null;
             });
-            Log.i(TAG, "SACH http upload pos ok: " + dir + "/" + name);
+            Log.i(TAG, "SACH_NAS http upload pos ok: " + dir + "/" + name);
             cb.onResult(null);
         } catch (Exception e) {
-            Log.w(TAG, "SACH http upload pos failed: " + e.getMessage());
+            Log.w(TAG, "SACH_NAS http upload pos failed: " + e.getMessage());
             cb.onError(e.getMessage());
         }
     }
@@ -75,7 +75,7 @@ public final class SynologyFileStationRepository implements RemoteProgressReposi
     @Override
     public void fetchOne(String fileHash, Callback<RemotePosition> cb) {
         String path = resolvePosDir() + "/pos_" + fileHash + ".json";
-        Log.i(TAG, "SACH http download pos: " + path);
+        Log.i(TAG, "SACH_NAS http download pos: " + path);
         try {
             RemotePosition pos = withSidAndRetry(sid -> {
                 String url = DsAuth.apiBase() + "/webapi/entry.cgi"
@@ -99,11 +99,11 @@ public final class SynologyFileStationRepository implements RemoteProgressReposi
                 JSONObject json = new JSONObject(body);
                 return RemotePosition.fromJson(json);
             });
-            Log.i(TAG, "SACH http download pos done: " + path
+            Log.i(TAG, "SACH_NAS http download pos done: " + path
                     + (pos == null ? " (not found)" : " offset=" + pos.charOffset));
             cb.onResult(pos);
         } catch (Exception e) {
-            Log.w(TAG, "SACH http download pos failed: " + path + " msg=" + e.getMessage());
+            Log.w(TAG, "SACH_NAS http download pos failed: " + path + " msg=" + e.getMessage());
             cb.onError(e.getMessage());
         }
     }
@@ -113,7 +113,7 @@ public final class SynologyFileStationRepository implements RemoteProgressReposi
     @Override
     public void fetchAll(Callback<Map<String, RemotePosition>> cb) {
         String dir = resolvePosDir();
-        Log.i(TAG, "SACH http list pos dir: " + dir);
+        Log.i(TAG, "SACH_NAS http list pos dir: " + dir);
         try {
             Map<String, RemotePosition> result = withSidAndRetry(sid -> {
                 String listUrl = DsAuth.apiBase() + "/webapi/entry.cgi"
@@ -125,7 +125,7 @@ public final class SynologyFileStationRepository implements RemoteProgressReposi
                 if (!envelope.optBoolean("success", false)) {
                     int code = errorCode(envelope);
                     if (code == ERROR_NO_SUCH_FILE) {
-                        Log.i(TAG, "SACH http list pos: dir not found (408) — empty");
+                        Log.i(TAG, "SACH_NAS http list pos: dir not found (408) — empty");
                         return new LinkedHashMap<>();
                     }
                     throw new SynologyDsmHelper.DsmException(code, "list failed");
@@ -134,7 +134,7 @@ public final class SynologyFileStationRepository implements RemoteProgressReposi
                 JSONArray files = envelope.getJSONObject("data").optJSONArray("files");
                 Map<String, RemotePosition> map = new LinkedHashMap<>();
                 if (files == null) {
-                    Log.i(TAG, "SACH http list pos: no files field");
+                    Log.i(TAG, "SACH_NAS http list pos: no files field");
                     return map;
                 }
 
@@ -149,16 +149,16 @@ public final class SynologyFileStationRepository implements RemoteProgressReposi
                         RemotePosition pos = downloadPos(dir + "/" + name, sid);
                         if (pos != null) map.put(hash, pos);
                     } catch (Exception inner) {
-                        Log.w(TAG, "SACH http list pos skip " + name + ": " + inner.getMessage());
+                        Log.w(TAG, "SACH_NAS http list pos skip " + name + ": " + inner.getMessage());
                     }
                 }
-                Log.i(TAG, "SACH http list pos: " + files.length() + " files in dir, "
+                Log.i(TAG, "SACH_NAS http list pos: " + files.length() + " files in dir, "
                         + posCount + " pos_*.json matched, " + map.size() + " decoded");
                 return map;
             });
             cb.onResult(result);
         } catch (Exception e) {
-            Log.w(TAG, "SACH http list pos failed: dir=" + dir + " msg=" + e.getMessage());
+            Log.w(TAG, "SACH_NAS http list pos failed: dir=" + dir + " msg=" + e.getMessage());
             cb.onError(e.getMessage());
         }
     }
@@ -168,7 +168,7 @@ public final class SynologyFileStationRepository implements RemoteProgressReposi
     @Override
     public void delete(String fileHash, Callback<Void> cb) {
         String path = resolvePosDir() + "/pos_" + fileHash + ".json";
-        Log.i(TAG, "SACH http delete pos: " + path);
+        Log.i(TAG, "SACH_NAS http delete pos: " + path);
         try {
             withSidAndRetry(sid -> {
                 String url = DsAuth.apiBase() + "/webapi/entry.cgi"
@@ -187,10 +187,10 @@ public final class SynologyFileStationRepository implements RemoteProgressReposi
                 }
                 return null;
             });
-            Log.i(TAG, "SACH http delete pos ok: " + path);
+            Log.i(TAG, "SACH_NAS http delete pos ok: " + path);
             cb.onResult(null);
         } catch (Exception e) {
-            Log.w(TAG, "SACH http delete pos failed: " + path + " msg=" + e.getMessage());
+            Log.w(TAG, "SACH_NAS http delete pos failed: " + path + " msg=" + e.getMessage());
             cb.onError(e.getMessage());
         }
     }

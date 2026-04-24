@@ -67,7 +67,7 @@ public final class SynologyBookmarksRepository implements RemoteBookmarksReposit
             root.put("bookmarks", arr);
             byte[] body = root.toString().getBytes(StandardCharsets.UTF_8);
 
-            Log.i(TAG, "SACH http upload bm: " + dir + "/" + name
+            Log.i(TAG, "SACH_NAS http upload bm: " + dir + "/" + name
                     + " count=" + count + " (" + body.length + " bytes)");
             withSidAndRetry(sid -> {
                 String url = DsAuth.apiBase() + "/webapi/entry.cgi?_sid="
@@ -80,10 +80,10 @@ public final class SynologyBookmarksRepository implements RemoteBookmarksReposit
                 }
                 return null;
             });
-            Log.i(TAG, "SACH http upload bm ok: " + dir + "/" + name);
+            Log.i(TAG, "SACH_NAS http upload bm ok: " + dir + "/" + name);
             cb.onResult(null);
         } catch (Exception e) {
-            Log.w(TAG, "SACH http upload bm failed: " + dir + "/" + name
+            Log.w(TAG, "SACH_NAS http upload bm failed: " + dir + "/" + name
                     + " msg=" + e.getMessage());
             cb.onError(e.getMessage());
         }
@@ -94,7 +94,7 @@ public final class SynologyBookmarksRepository implements RemoteBookmarksReposit
     @Override
     public void fetchOne(String fileHash, Callback<List<Bookmark>> cb) {
         String path = resolveDir() + "/" + fileName(fileHash);
-        Log.i(TAG, "SACH http download bm: " + path);
+        Log.i(TAG, "SACH_NAS http download bm: " + path);
         try {
             List<Bookmark> list = withSidAndRetry(sid -> {
                 String url = DsAuth.apiBase() + "/webapi/entry.cgi"
@@ -132,10 +132,10 @@ public final class SynologyBookmarksRepository implements RemoteBookmarksReposit
                     return Collections.<Bookmark>emptyList();
                 }
             });
-            Log.i(TAG, "SACH http download bm done: " + path + " count=" + list.size());
+            Log.i(TAG, "SACH_NAS http download bm done: " + path + " count=" + list.size());
             cb.onResult(list);
         } catch (Exception e) {
-            Log.w(TAG, "SACH http download bm failed: " + path + " msg=" + e.getMessage());
+            Log.w(TAG, "SACH_NAS http download bm failed: " + path + " msg=" + e.getMessage());
             cb.onError(e.getMessage());
         }
     }
