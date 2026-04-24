@@ -7,12 +7,17 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.Handler;
+import android.os.Looper;
 import android.provider.Settings;
+import android.util.Log;
 import android.view.View;
+import android.widget.Toast;
 
 import androidx.activity.OnBackPressedCallback;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
@@ -24,8 +29,13 @@ import androidx.fragment.app.FragmentActivity;
 import androidx.viewpager2.adapter.FragmentStateAdapter;
 import androidx.viewpager2.widget.ViewPager2;
 
+import com.example.minseo3.nas.RemotePosition;
+import com.example.minseo3.nas.RemoteProgressRepository;
 import com.google.android.material.appbar.AppBarLayout;
 import com.google.android.material.tabs.TabLayout;
+
+import java.io.File;
+import java.util.Map;
 
 /**
  * 메인 화면 — ViewPager2 3 페이지:
@@ -65,6 +75,12 @@ public class BookListActivity extends AppCompatActivity {
      *  가지므로 인스턴스가 나뉘면 한쪽 mutation 이 다른 쪽에 보이지 않음. */
     @Nullable private BookmarksRepository bookmarksRepo;
 
+    /** 런치 결정에서 NAS fetch 를 쓰기 위해 보관. onCreate 생성, 프로세스 동안 유지. */
+    @Nullable private NasSyncManager nasSyncManager;
+
+    /** 이번 프로세스 시작 시 런치 결정 (auto-reader / popup) 을 이미 돌렸는지. */
+    private boolean launchDecisionRan = false;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -78,7 +94,7 @@ public class BookListActivity extends AppCompatActivity {
             currentBookSkipConflict = savedInstanceState.getBoolean(STATE_BOOK_SKIP_CONFLICT, false);
         }
 
-        new NasSyncManager(this);
+        nasSyncManager = new NasSyncManager(this);
 
         viewPager = findViewById(R.id.view_pager);
         tabLayout = findViewById(R.id.tab_layout);
@@ -119,6 +135,9 @@ public class BookListActivity extends AppCompatActivity {
                     tabLayout.selectTab(tabLayout.getTabAt(position));
                 }
                 applyChromeForPosition(position);
+                // 마지막 종료 시점 탭 스냅샷 — 런치 결정 시 "리더로 자동 진입" 판단에 사용.
+                AppSessionPrefs.setLastExitMode(BookListActivity.this,
+                        position == 2 ? AppSessionPrefs.MODE_READER : AppSessionPrefs.MODE_LIST);
             }
 
             @Override public void onPageScrolled(int position, float offset, int px) {
@@ -166,6 +185,9 @@ public class BookListActivity extends AppCompatActivity {
             if (savedPos >= 0 && savedPos < 3) {
                 viewPager.post(() -> viewPager.setCurrentItem(savedPos, false));
             }
+        } else {
+            // 콜드 스타트만 런치 결정 — 회전/복원 시엔 다시 팝업 띄우거나 자동 오픈하지 않음.
+            runLaunchDecision();
         }
     }
 
@@ -233,6 +255,128 @@ public class BookListActivity extends AppCompatActivity {
      *  fragment 가 재생성되어도 다시 prompt 되지 않도록 host 수준으로 승격. */
     public void markConflictResolvedForCurrentBook() {
         currentBookSkipConflict = true;
+    }
+
+    // ── Launch decision ─────────────────────────────────────────────────────
+    //
+    // 콜드 스타트 직후 리스트 화면이 기본으로 뜬 상태에서, 한 번 실행:
+    //
+    //   1. NAS 최신 (다른 단말 deviceId) > Local 최신  → "이어보시겠습니까?" 팝업
+    //   2. Local 최신 ≥ NAS 최신:
+    //      - 마지막 종료가 리더 탭이었으면 → 해당 책 자동 리더 진입
+    //      - 그 외 → 리스트 유지
+    //
+    // 회전 등 config change 시엔 이미 savedInstanceState != null 이므로 스킵.
+    private void runLaunchDecision() {
+        if (launchDecisionRan) return;
+        launchDecisionRan = true;
+
+        LocalProgressRepository progressRepo = new LocalProgressRepository(this);
+        LocalProgressRepository.Entry local = progressRepo.getMostRecent();
+        long localEpoch = local != null ? local.lastRead : 0L;
+        String lastExit = AppSessionPrefs.getLastExitMode(this);
+
+        NasSyncManager nas = nasSyncManager;
+        if (nas == null || !nas.isEnabled() || !nas.isConnected()) {
+            Log.i("NasSync", "SACH_NAS launch: nas off/not-connected — local only");
+            applyLocalOnlyLaunchDecision(local, lastExit);
+            return;
+        }
+
+        String myDeviceId = nas.deviceId();
+        Handler main = new Handler(Looper.getMainLooper());
+        nas.fetchAll(new RemoteProgressRepository.Callback<Map<String, RemotePosition>>() {
+            @Override public void onResult(Map<String, RemotePosition> map) {
+                main.post(() -> onLaunchNasLoaded(map, myDeviceId, local, localEpoch, lastExit));
+            }
+            @Override public void onError(String message) {
+                Log.w("NasSync", "SACH_NAS launch fetchAll failed: " + message);
+                main.post(() -> applyLocalOnlyLaunchDecision(local, lastExit));
+            }
+        });
+    }
+
+    private void onLaunchNasLoaded(Map<String, RemotePosition> map, String myDeviceId,
+                                   @Nullable LocalProgressRepository.Entry local,
+                                   long localEpoch,
+                                   String lastExit) {
+        // 사용자가 이미 직접 탭/스와이프로 이동했으면 자동 동작 취소 — 방해하지 않음.
+        if (viewPager.getCurrentItem() != 0) {
+            Log.i("NasSync", "SACH_NAS launch: user already navigated — skip");
+            return;
+        }
+
+        RemotePosition nasBest = null;
+        if (map != null) {
+            for (RemotePosition p : map.values()) {
+                if (p == null) continue;
+                if (myDeviceId != null && myDeviceId.equals(p.deviceId)) continue; // 내 기기 제외
+                if (nasBest == null || p.lastUpdatedEpoch > nasBest.lastUpdatedEpoch) nasBest = p;
+            }
+        }
+
+        long nasEpoch = nasBest != null ? nasBest.lastUpdatedEpoch : 0L;
+        Log.i("NasSync", "SACH_NAS launch compare: localEpoch=" + localEpoch
+                + " nasEpoch=" + nasEpoch + " lastExit=" + lastExit);
+
+        if (nasBest != null && nasEpoch > localEpoch) {
+            showNasResumeDialog(nasBest);
+            return;
+        }
+        applyLocalOnlyLaunchDecision(local, lastExit);
+    }
+
+    private void applyLocalOnlyLaunchDecision(@Nullable LocalProgressRepository.Entry local,
+                                              String lastExit) {
+        if (local == null) {
+            Log.i("NasSync", "SACH_NAS launch: no local progress — stay on list");
+            return;
+        }
+        if (!AppSessionPrefs.MODE_READER.equals(lastExit)) {
+            Log.i("NasSync", "SACH_NAS launch: last exit was list — stay on list");
+            return;
+        }
+        File f = new File(local.filePath);
+        if (!f.exists()) {
+            Log.i("NasSync", "SACH_NAS launch: local file missing " + local.filePath
+                    + " — stay on list");
+            return;
+        }
+        Log.i("NasSync", "SACH_NAS launch: auto-open reader " + local.filePath
+                + " offset=" + local.charOffset);
+        openBook(local.filePath, local.charOffset, /*skipConflict*/ true);
+    }
+
+    private void showNasResumeDialog(RemotePosition nas) {
+        String title = stripTxt(nas.fileName);
+        int percent = nas.totalChars > 0
+                ? (int) (nas.charOffset * 100L / nas.totalChars) : 0;
+        String msg = "다른 단말에서 '" + title + "' 을(를) " + percent
+                + "% 까지 읽었습니다.\n이어 보시겠습니까?";
+
+        new AlertDialog.Builder(this)
+                .setTitle("이어 읽기")
+                .setMessage(msg)
+                .setPositiveButton("예", (d, w) -> {
+                    File local = FileUtils.findLocalByNameAndSize(nas.fileName, nas.fileSize);
+                    if (local == null) {
+                        Toast.makeText(BookListActivity.this,
+                                "이 기기에 '" + nas.fileName + "' 파일이 없습니다",
+                                Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    // NAS offset 으로 이미 진입하는 경로 — 리더 내부에서 재비교 불필요.
+                    openBook(local.getAbsolutePath(), nas.charOffset, /*skipConflict*/ true);
+                })
+                .setNegativeButton("아니오", null)
+                .setCancelable(true)
+                .show();
+    }
+
+    private static String stripTxt(String name) {
+        if (name == null) return "";
+        String lower = name.toLowerCase();
+        return lower.endsWith(".txt") ? name.substring(0, name.length() - 4) : name;
     }
 
     /**
