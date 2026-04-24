@@ -89,7 +89,6 @@ public class BookListActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_book_list);
-        setTitle("소설 목록");
 
         // 회전 등 config change 후 복원 — 리더 페이지에 있던 사용자는 그대로 리더 유지.
         if (savedInstanceState != null) {
