@@ -50,8 +50,9 @@ public class ReaderFragment extends Fragment {
     private PageView pageView;
     private TextView tvPageInfo;
     private TextView tvStatusLeft;
+    private TextView tvFileName;
     private SeekBar seekBar;
-    private View topBar, bottomBar, topMenuRow;
+    private View topStatusStrip, bottomBar, topMenuRow, bottomFilenameStrip;
     private View tvReaderEmpty;
     private ImageButton btnBookmarks, btnTts, btnBack;
 
@@ -119,20 +120,21 @@ public class ReaderFragment extends Fragment {
     public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
 
-        pageView      = view.findViewById(R.id.page_view);
-        tvPageInfo    = view.findViewById(R.id.tv_page_info);
-        tvStatusLeft  = view.findViewById(R.id.tv_status_left);
-        seekBar       = view.findViewById(R.id.seek_bar);
-        topBar        = view.findViewById(R.id.top_bar);
-        topMenuRow    = view.findViewById(R.id.top_menu_row);
-        bottomBar     = view.findViewById(R.id.bottom_bar);
-        tvReaderEmpty = view.findViewById(R.id.tv_reader_empty);
-        btnBookmarks  = view.findViewById(R.id.btn_bookmarks);
-        btnTts        = view.findViewById(R.id.btn_tts);
-        btnBack       = view.findViewById(R.id.btn_back);
+        pageView       = view.findViewById(R.id.page_view);
+        tvPageInfo     = view.findViewById(R.id.tv_page_info);
+        tvStatusLeft   = view.findViewById(R.id.tv_status_left);
+        tvFileName     = view.findViewById(R.id.tv_file_name);
+        seekBar        = view.findViewById(R.id.seek_bar);
+        topStatusStrip = view.findViewById(R.id.top_status_strip);
+        topMenuRow     = view.findViewById(R.id.top_menu_row);
+        bottomBar      = view.findViewById(R.id.bottom_bar);
+        bottomFilenameStrip = view.findViewById(R.id.bottom_filename_strip);
+        tvReaderEmpty  = view.findViewById(R.id.tv_reader_empty);
+        btnBookmarks   = view.findViewById(R.id.btn_bookmarks);
+        btnTts         = view.findViewById(R.id.btn_tts);
+        btnBack        = view.findViewById(R.id.btn_back);
 
-        topMenuRow.setVisibility(View.GONE);
-        bottomBar.setVisibility(View.GONE);
+        // top_menu_row / bottom_bar 는 XML 에서 이미 visibility=gone. 건드릴 필요 없음.
 
         progressRepo = new LocalProgressRepository(requireContext());
         nasSyncManager = new NasSyncManager(requireContext());
@@ -202,20 +204,23 @@ public class ReaderFragment extends Fragment {
         skipConflictResolve = skipConflict;
         conflictResolved = false;
         loadedPath = path;
+        tvFileName.setText(FileUtils.displayName(file));
         loadFile(file, startOffset);
     }
 
     private void showEmptyState() {
         tvReaderEmpty.setVisibility(View.VISIBLE);
         pageView.setVisibility(View.GONE);
-        topBar.setVisibility(View.GONE);
+        topStatusStrip.setVisibility(View.GONE);
         bottomBar.setVisibility(View.GONE);
+        bottomFilenameStrip.setVisibility(View.GONE);
     }
 
     private void hideEmptyState() {
         tvReaderEmpty.setVisibility(View.GONE);
         pageView.setVisibility(View.VISIBLE);
-        topBar.setVisibility(View.VISIBLE);
+        topStatusStrip.setVisibility(View.VISIBLE);
+        bottomFilenameStrip.setVisibility(View.VISIBLE);
         // bottomBar 는 uiVisible 에 따라 관리
     }
 

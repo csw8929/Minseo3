@@ -5,15 +5,16 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
-    <!-- Full-screen page canvas -->
+    <!-- 페이지 캔버스 — 상/하 status strip (각 32dp) 만 padding 으로 비우고,
+         나머진 전부 텍스트. top_menu_row / bottom_bar 는 overlay. -->
     <com.example.minseo3.PageView
         android:id="@+id/page_view"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:paddingLeft="20dp"
         android:paddingRight="20dp"
-        android:paddingTop="88dp"
-        android:paddingBottom="64dp" />
+        android:paddingTop="32dp"
+        android:paddingBottom="32dp" />
 
     <!-- Loading spinner -->
     <ProgressBar
@@ -23,96 +24,100 @@
         android:layout_gravity="center"
         android:visibility="gone" />
 
-    <!-- 비어있는 상태 (state 없이 스와이프 도달 시) -->
     <TextView
         android:id="@+id/tv_reader_empty"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="center"
+        android:layout_marginStart="24dp"
+        android:layout_marginEnd="24dp"
+        android:gravity="center"
         android:textColor="#888888"
         android:textSize="14sp"
         android:text="읽을 책을 선택하세요"
         android:visibility="gone" />
 
-    <!-- Top area: status row + menu row -->
+    <!-- 상단: 항상 보이는 status strip (페이지/시계) — 32dp -->
     <LinearLayout
-        android:id="@+id/top_bar"
+        android:id="@+id/top_status_strip"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
+        android:layout_height="32dp"
         android:layout_gravity="top"
-        android:orientation="vertical"
-        android:background="#CC000000">
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="#CC000000"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp">
 
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="32dp"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:paddingStart="12dp"
-            android:paddingEnd="12dp">
+        <TextView
+            android:id="@+id/tv_status_left"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textColor="#FFFFFF"
+            android:textSize="12sp"
+            android:text="1 / 1  (0%)" />
 
-            <TextView
-                android:id="@+id/tv_status_left"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:textColor="#FFFFFF"
-                android:textSize="12sp"
-                android:text="1 / 1  (0%)" />
-
-            <TextClock
-                android:id="@+id/tv_status_right"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:textColor="#FFFFFF"
-                android:textSize="12sp"
-                android:format12Hour="a h:mm"
-                android:format24Hour="HH:mm" />
-        </LinearLayout>
-
-        <LinearLayout
-            android:id="@+id/top_menu_row"
-            android:layout_width="match_parent"
-            android:layout_height="48dp"
-            android:orientation="horizontal">
-
-            <TextView
-                android:id="@+id/menu_settings"
-                android:layout_width="0dp"
-                android:layout_height="match_parent"
-                android:layout_weight="1"
-                android:gravity="center"
-                android:background="?attr/selectableItemBackground"
-                android:clickable="true"
-                android:focusable="true"
-                android:textColor="#FFFFFF"
-                android:textSize="14sp"
-                android:text="설정" />
-
-            <TextView
-                android:id="@+id/menu_nas"
-                android:layout_width="0dp"
-                android:layout_height="match_parent"
-                android:layout_weight="1"
-                android:gravity="center"
-                android:background="?attr/selectableItemBackground"
-                android:clickable="true"
-                android:focusable="true"
-                android:textColor="#FFFFFF"
-                android:textSize="14sp"
-                android:text="NAS" />
-        </LinearLayout>
+        <TextClock
+            android:id="@+id/tv_status_right"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="#FFFFFF"
+            android:textSize="12sp"
+            android:format12Hour="a h:mm"
+            android:format24Hour="HH:mm" />
     </LinearLayout>
 
-    <!-- Bottom bar -->
+    <!-- 상단: 메뉴 (설정/NAS) — hideable, 중앙 tap 시 overlay. status strip 바로 아래에 뜸. -->
+    <LinearLayout
+        android:id="@+id/top_menu_row"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:layout_gravity="top"
+        android:layout_marginTop="32dp"
+        android:background="#CC000000"
+        android:orientation="horizontal"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/menu_settings"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:background="?attr/selectableItemBackground"
+            android:clickable="true"
+            android:focusable="true"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp"
+            android:text="설정" />
+
+        <TextView
+            android:id="@+id/menu_nas"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:background="?attr/selectableItemBackground"
+            android:clickable="true"
+            android:focusable="true"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp"
+            android:text="NAS" />
+    </LinearLayout>
+
+    <!-- 하단: 컨트롤 바 (seekbar + 버튼) — hideable, 중앙 tap 시 overlay.
+         파일명 strip 바로 위에 뜸. -->
     <LinearLayout
         android:id="@+id/bottom_bar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom"
+        android:layout_marginBottom="32dp"
         android:orientation="vertical"
         android:background="#CC000000"
-        android:padding="8dp">
+        android:padding="8dp"
+        android:visibility="gone">
 
         <SeekBar
             android:id="@+id/seek_bar"
@@ -163,6 +168,30 @@
                 android:contentDescription="@string/back_to_list" />
 
         </LinearLayout>
+    </LinearLayout>
+
+    <!-- 하단: 파일명 strip (항상 보임, 32dp, 상단 strip 과 대칭). -->
+    <LinearLayout
+        android:id="@+id/bottom_filename_strip"
+        android:layout_width="match_parent"
+        android:layout_height="32dp"
+        android:layout_gravity="bottom"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="#CC000000"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp">
+
+        <TextView
+            android:id="@+id/tv_file_name"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="#FFFFFF"
+            android:textSize="12sp"
+            android:gravity="center"
+            android:maxLines="1"
+            android:ellipsize="middle"
+            android:text="" />
     </LinearLayout>
 
 </FrameLayout>
