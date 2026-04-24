@@ -5,13 +5,18 @@ import android.content.SharedPreferences;
 import android.provider.Settings;
 import android.util.Log;
 
+import com.example.minseo3.Bookmark;
 import com.example.minseo3.nas.DsAuth;
+import com.example.minseo3.nas.RemoteBookmarksRepository;
 import com.example.minseo3.nas.RemoteProgressRepository;
 import com.example.minseo3.nas.RemotePosition;
+import com.example.minseo3.nas.SynologyBookmarksRepository;
 import com.example.minseo3.nas.SynologyFileStationRepository;
 
 import java.io.File;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
@@ -57,12 +62,19 @@ public class NasSyncManager {
 
     private final Prefs prefs;
     private final RemoteProgressRepository repo;
+    private final RemoteBookmarksRepository bmRepo;
     private final ExecutorService networkExecutor;
     private volatile boolean connected = false;
+
+    // Bookmark push debounce: 1s. Repeated toggles coalesce so only the last
+    // state hits NAS. Per-fileHash so different books don't block each other.
+    private static final long BOOKMARK_PUSH_DEBOUNCE_MS = 1000L;
+    private final Map<String, Long> bookmarkPushScheduledAt = new HashMap<>();
 
     public NasSyncManager(Context context) {
         this(new SharedPrefsBackedPrefs(context),
                 new SynologyFileStationRepository(computeDeviceId(context)),
+                new SynologyBookmarksRepository(),
                 defaultExecutor());
         Context app = context.getApplicationContext();
         seedDefaultsIfFirstLaunch(app);
@@ -163,9 +175,11 @@ public class NasSyncManager {
     }
 
     /** 테스트/DI용. */
-    NasSyncManager(Prefs prefs, RemoteProgressRepository repo, ExecutorService executor) {
+    NasSyncManager(Prefs prefs, RemoteProgressRepository repo,
+                   RemoteBookmarksRepository bmRepo, ExecutorService executor) {
         this.prefs = prefs;
         this.repo = repo;
+        this.bmRepo = bmRepo;
         this.networkExecutor = executor;
     }
 
@@ -277,6 +291,76 @@ public class NasSyncManager {
                 cb.onError(message);
             }
         }));
+    }
+
+    /** NAS 에서 pos_{fileHash}.json 삭제. "다른 단말 진행" 리스트에서 사용. */
+    public void deletePosition(String fileHash, RemoteProgressRepository.Callback<Void> cb) {
+        if (!isEnabled() || !connected) {
+            cb.onError("NAS 미연결");
+            return;
+        }
+        networkExecutor.execute(() -> repo.delete(fileHash, new RemoteProgressRepository.Callback<Void>() {
+            @Override public void onResult(Void v) {
+                connected = true;
+                cb.onResult(null);
+            }
+            @Override public void onError(String message) {
+                connected = false;
+                cb.onError(message);
+            }
+        }));
+    }
+
+    // ── Bookmarks sync ──────────────────────────────────────────────────────
+
+    /**
+     * 1초 debounce push — 연속 토글은 마지막 상태만 업로드한다.
+     * bookmarks 는 "호출 시점의 로컬 전체" 를 그대로 원격에 덮어쓰므로 stale snapshot 이어도 안전.
+     */
+    public void pushBookmarks(String fileHash, List<Bookmark> snapshot) {
+        if (!isEnabled() || !connected || bmRepo == null) return;
+        long now = System.currentTimeMillis();
+        long scheduledAt = now + BOOKMARK_PUSH_DEBOUNCE_MS;
+        synchronized (bookmarkPushScheduledAt) {
+            bookmarkPushScheduledAt.put(fileHash, scheduledAt);
+        }
+        networkExecutor.execute(() -> {
+            try { Thread.sleep(BOOKMARK_PUSH_DEBOUNCE_MS); }
+            catch (InterruptedException ignored) { Thread.currentThread().interrupt(); return; }
+
+            synchronized (bookmarkPushScheduledAt) {
+                Long latest = bookmarkPushScheduledAt.get(fileHash);
+                if (latest == null || latest.longValue() != scheduledAt) return; // superseded
+                bookmarkPushScheduledAt.remove(fileHash);
+            }
+            bmRepo.push(fileHash, snapshot, new RemoteBookmarksRepository.Callback<Void>() {
+                @Override public void onResult(Void v) { connected = true; }
+                @Override public void onError(String msg) {
+                    connected = false;
+                    Log.w(TAG, "bm push failed: " + msg);
+                }
+            });
+        });
+    }
+
+    /** 리더 onCreate 시 1회 pull. 비활성/미연결이면 빈 리스트 즉시 콜백. */
+    public void pullBookmarks(String fileHash,
+                              RemoteBookmarksRepository.Callback<List<Bookmark>> cb) {
+        if (!isEnabled() || !connected || bmRepo == null) {
+            cb.onResult(Collections.<Bookmark>emptyList());
+            return;
+        }
+        networkExecutor.execute(() ->
+                bmRepo.fetchOne(fileHash, new RemoteBookmarksRepository.Callback<List<Bookmark>>() {
+                    @Override public void onResult(List<Bookmark> value) {
+                        connected = true;
+                        cb.onResult(value == null ? Collections.<Bookmark>emptyList() : value);
+                    }
+                    @Override public void onError(String message) {
+                        connected = false;
+                        cb.onError(message);
+                    }
+                }));
     }
 
     /** 책 열 때 1회 충돌 해결을 위해 호출. 비활성/미연결이면 null을 즉시 콜백. */

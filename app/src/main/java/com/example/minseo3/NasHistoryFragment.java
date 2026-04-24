@@ -8,6 +8,7 @@ import android.text.format.DateUtils;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.PopupMenu;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -86,9 +87,12 @@ public class NasHistoryFragment extends Fragment {
     }
 
     private void onFetched(Map<String, RemotePosition> map) {
+        String myDeviceId = nas.deviceId();
         List<NasItem> items = new ArrayList<>();
         for (Map.Entry<String, RemotePosition> e : map.entrySet()) {
             RemotePosition p = e.getValue();
+            // 이 섹션은 "다른 단말" 전용 — 내 기기에서 올린 항목은 제외한다.
+            if (myDeviceId != null && myDeviceId.equals(p.deviceId)) continue;
             File local = FileUtils.findLocalByNameAndSize(p.fileName, p.fileSize);
             items.add(new NasItem(e.getKey(), p, local));
         }
@@ -96,7 +100,7 @@ public class NasHistoryFragment extends Fragment {
         adapter.setItems(items);
 
         if (items.isEmpty()) {
-            showMessage("NAS에 읽기 기록이 없습니다.");
+            showMessage("다른 단말에서 올린 읽기 기록이 없습니다.");
         } else {
             recyclerView.setVisibility(View.VISIBLE);
             progress.setVisibility(View.GONE);
@@ -117,6 +121,27 @@ public class NasHistoryFragment extends Fragment {
         tvStatus.setVisibility(View.VISIBLE);
     }
 
+    private void showDeleteMenu(View anchor, NasItem item) {
+        PopupMenu menu = new PopupMenu(requireContext(), anchor);
+        menu.getMenuInflater().inflate(R.menu.menu_item_delete, menu.getMenu());
+        menu.setOnMenuItemClickListener(mi -> {
+            if (mi.getItemId() == R.id.action_delete) {
+                nas.deletePosition(item.fileHash, new RemoteProgressRepository.Callback<Void>() {
+                    @Override public void onResult(Void v) {
+                        mainHandler.post(() -> refresh());
+                    }
+                    @Override public void onError(String message) {
+                        mainHandler.post(() -> Toast.makeText(requireContext(),
+                                "삭제 실패: " + message, Toast.LENGTH_SHORT).show());
+                    }
+                });
+                return true;
+            }
+            return false;
+        });
+        menu.show();
+    }
+
     private void openBook(NasItem item) {
         if (item.localFile == null) {
             Toast.makeText(requireContext(), "이 기기에 '" + item.pos.fileName + "' 파일이 없습니다",
@@ -128,7 +153,10 @@ public class NasHistoryFragment extends Fragment {
         intent.putExtra(ReaderActivity.EXTRA_CHAR_OFFSET, item.pos.charOffset);
         // NAS 탭에서 진입 — 이미 NAS offset 을 가지고 있으므로 충돌 해결 생략.
         intent.putExtra(ReaderActivity.EXTRA_SKIP_CONFLICT_RESOLVE, true);
-        startActivity(intent);
+        if (requireActivity() instanceof BookListActivity) {
+            ((BookListActivity) requireActivity()).noteOpenedBook(item.localFile.getAbsolutePath());
+        }
+        ReaderActivity.startReaderFromFragment(this, intent);
     }
 
     // ── Data model ──────────────────────────────────────────────────────────
@@ -180,6 +208,7 @@ public class NasHistoryFragment extends Fragment {
             h.progressBar.setAlpha(alpha);
             h.itemView.setEnabled(true); // 비활성도 탭 가능 — 안내 토스트 띄움
             h.itemView.setOnClickListener(v -> openBook(item));
+            h.itemView.setOnLongClickListener(v -> { showDeleteMenu(v, item); return true; });
         }
 
         @Override public int getItemCount() { return items.size(); }

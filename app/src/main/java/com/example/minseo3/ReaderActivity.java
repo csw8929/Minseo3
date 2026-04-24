@@ -1,7 +1,10 @@
 package com.example.minseo3;
 
+import android.app.Activity;
+import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.res.Configuration;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -22,12 +25,15 @@ import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
 
+import com.example.minseo3.nas.BookmarksConflictResolver;
 import com.example.minseo3.nas.ConflictOutcome;
 import com.example.minseo3.nas.ConflictResolver;
+import com.example.minseo3.nas.RemoteBookmarksRepository;
 import com.example.minseo3.nas.RemoteProgressRepository;
 import com.example.minseo3.nas.RemotePosition;
 
 import java.io.File;
+import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -37,21 +43,52 @@ public class ReaderActivity extends AppCompatActivity {
     public static final String EXTRA_CHAR_OFFSET = "char_offset";
     /** true 면 NAS 와의 충돌 해결을 건너뜀 — NAS 탭에서 진입한 경우 사용. */
     public static final String EXTRA_SKIP_CONFLICT_RESOLVE = "skip_conflict_resolve";
+    /** true 면 Activity 전환 애니메이션을 생략 (예: 스와이프 R→L 로 이전 책 재오픈). */
+    public static final String EXTRA_NO_ANIMATION = "no_animation";
+
+    /**
+     * 리스트→리더 진입의 표준 경로. 세로 모드에선 위아래, 가로 모드에선 좌우 슬라이드.
+     * 기존 startActivity 호출을 모두 이 헬퍼로 교체해 방향 일관성 유지.
+     */
+    public static void startReader(Activity from, Intent intent) {
+        from.startActivity(intent);
+        if (intent.getBooleanExtra(EXTRA_NO_ANIMATION, false)) {
+            from.overridePendingTransition(0, 0);
+            return;
+        }
+        boolean landscape = from.getResources().getConfiguration().orientation
+                == Configuration.ORIENTATION_LANDSCAPE;
+        from.overridePendingTransition(
+                landscape ? R.anim.reader_enter_from_right : R.anim.reader_enter_from_bottom,
+                landscape ? R.anim.reader_exit_to_left    : R.anim.reader_exit_to_top);
+    }
+
+    /** Fragment 용 — requireActivity() 통해 호출. */
+    public static void startReaderFromFragment(androidx.fragment.app.Fragment from, Intent intent) {
+        startReader(from.requireActivity(), intent);
+    }
 
     // ── UI
     private PageView pageView;
     private TextView tvPageInfo;
     private TextView tvStatusLeft;
     private SeekBar seekBar;
-    private View topBar, bottomBar;
-    private ImageButton btnSettings, btnTts;
+    private View topBar, bottomBar, topMenuRow;
+    private ImageButton btnBookmarks, btnTts, btnBack;
 
     // ── State
     private String text = "";
     private String fileHash = "";
     private String filePath = "";
     private int currentPage = 0;
-    private boolean uiVisible = true;
+    /** 상단 메뉴 + 하단바 표시 상태. 기본은 false (읽기 몰입용 최소 UI).
+     *  상단 status strip (page % + 시계) 은 항상 표시. */
+    private boolean uiVisible = false;
+
+    private static final long UI_AUTO_HIDE_DELAY_MS = 3000L;
+    private static final long UI_FADE_DURATION_MS = 200L;
+    private final Handler uiHideHandler = new Handler(Looper.getMainLooper());
+    private final Runnable uiHideRunnable = this::hideUIBars;
 
     // ── Settings (persisted in SharedPreferences "reader_prefs")
     private static final String PREFS_NAME = "reader_prefs";
@@ -73,6 +110,39 @@ public class ReaderActivity extends AppCompatActivity {
     private LocalProgressRepository progressRepo;
     private NasSyncManager nasSyncManager;
     private PaginationCache paginationCache;
+
+    // ── Bookmarks (Phase 1: local-only)
+    private BookmarksRepository bookmarksRepo;
+    private final Runnable bookmarksChangedListener = this::onBookmarksChanged;
+
+    private void onBookmarksChanged() {
+        if (paginationReady) refreshBookmarkIcon();
+        if (!fileHash.isEmpty() && bookmarksRepo != null && nasSyncManager != null) {
+            // Phase 2: push snapshot (alive + tombstone). NasSyncManager coalesces
+            // rapid toggles via 1s debounce, so calling this on every mutation is safe.
+            nasSyncManager.pushBookmarks(fileHash, bookmarksRepo.getAll(fileHash));
+        }
+    }
+
+    /** Phase 2: pull remote bookmarks once per reader entry and merge into local. */
+    private void maybePullBookmarks() {
+        if (fileHash.isEmpty() || bookmarksRepo == null || nasSyncManager == null) return;
+        if (!nasSyncManager.isEnabled() || !nasSyncManager.isConnected()) return;
+        final String hashAtRequest = fileHash;
+        nasSyncManager.pullBookmarks(hashAtRequest,
+                new RemoteBookmarksRepository.Callback<List<Bookmark>>() {
+                    @Override public void onResult(List<Bookmark> remote) {
+                        mainHandler.post(() -> {
+                            if (!hashAtRequest.equals(fileHash)) return; // activity moved on
+                            if (remote == null || remote.isEmpty()) return;
+                            List<Bookmark> local = bookmarksRepo.getAll(hashAtRequest);
+                            List<Bookmark> merged = BookmarksConflictResolver.merge(local, remote);
+                            bookmarksRepo.replaceAll(hashAtRequest, merged);
+                        });
+                    }
+                    @Override public void onError(String msg) { /* lenient — 로컬 그대로 */ }
+                });
+    }
 
     // False while the full paginate is running. Blocks page navigation, seekbar
     // input, and TTS so we don't act on incomplete pageOffsets. flushSaveNow()
@@ -112,13 +182,21 @@ public class ReaderActivity extends AppCompatActivity {
         tvStatusLeft  = findViewById(R.id.tv_status_left);
         seekBar       = findViewById(R.id.seek_bar);
         topBar        = findViewById(R.id.top_bar);
+        topMenuRow    = findViewById(R.id.top_menu_row);
         bottomBar     = findViewById(R.id.bottom_bar);
-        btnSettings   = findViewById(R.id.btn_settings);
+
+        // 기본 최소 UI — status strip 만 보임, 메뉴 행 + 하단바 숨김.
+        topMenuRow.setVisibility(View.GONE);
+        bottomBar.setVisibility(View.GONE);
+        btnBookmarks  = findViewById(R.id.btn_bookmarks);
         btnTts        = findViewById(R.id.btn_tts);
+        btnBack       = findViewById(R.id.btn_back);
 
         progressRepo = new LocalProgressRepository(this);
         nasSyncManager = new NasSyncManager(this);
         paginationCache = new PaginationCache(this);
+        bookmarksRepo = new BookmarksRepository(this);
+        bookmarksRepo.setOnChangedListener(bookmarksChangedListener);
 
         readerPrefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         textSizeSp = readerPrefs.getFloat(PREF_TEXT_SIZE_SP, textSizeSp);
@@ -153,13 +231,15 @@ public class ReaderActivity extends AppCompatActivity {
         setupTouchHandler();
         setupSeekBar();
         setupTopMenu();
-        btnSettings.setOnClickListener(v -> showSettings());
+        btnBookmarks.setOnClickListener(v -> showBookmarks());
         btnTts.setOnClickListener(v -> toggleTts());
+        btnBack.setOnClickListener(v -> finish());
 
-        // Back button = exit app, not return to list
+        // Back press → return to list (BookListActivity is still in stack).
+        // 스와이프 L→R / 하단 back 버튼 / 시스템 back 모두 같은 finish() 경로.
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override public void handleOnBackPressed() {
-                finishAffinity();
+                finish();
             }
         });
 
@@ -178,13 +258,6 @@ public class ReaderActivity extends AppCompatActivity {
     // ── Top menu (리스트 / 설정 / NAS) ────────────────────────────────────────
 
     private void setupTopMenu() {
-        findViewById(R.id.menu_list).setOnClickListener(v -> {
-            // Bring the existing BookList forward, keeping Reader in the stack
-            // so that pressing back on BookList returns to this novel.
-            Intent intent = new Intent(this, BookListActivity.class);
-            intent.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
-            startActivity(intent);
-        });
         findViewById(R.id.menu_settings).setOnClickListener(v -> showSettings());
         findViewById(R.id.menu_nas).setOnClickListener(v ->
                 startActivity(new Intent(this, NasSettingsActivity.class)));
@@ -265,6 +338,7 @@ public class ReaderActivity extends AppCompatActivity {
                 paginationReady = true;
                 displayPage(page);
                 maybeResolveNasConflict();
+                maybePullBookmarks();
             });
         });
     }
@@ -336,7 +410,35 @@ public class ReaderActivity extends AppCompatActivity {
         tvStatusLeft.setText(pageStr + "  (" + percent + "%)");
         seekBar.setProgress(currentPage);
 
+        refreshBookmarkIcon();
         scheduleSave();
+    }
+
+    /** Flip bottom-bar star between filled/outline based on whether this page is bookmarked. */
+    private void refreshBookmarkIcon() {
+        if (btnBookmarks == null || bookmarksRepo == null || fileHash.isEmpty()) return;
+        int start = pageRenderer.getPageStartOffset(currentPage);
+        int end = (currentPage + 1 < pageRenderer.getPageCount())
+                ? pageRenderer.getPageStartOffset(currentPage + 1)
+                : text.length();
+        boolean filled = bookmarksRepo.anyInRange(fileHash, start, end);
+        btnBookmarks.setImageResource(filled
+                ? R.drawable.ic_bookmark_star_filled
+                : R.drawable.ic_bookmark_star_outline);
+    }
+
+    /**
+     * 별 탭 = 현재 페이지 북마크 즉시 토글 (BottomSheet 팝업 없음).
+     * 추가/제거는 별 아이콘 flip 으로만 피드백. 이 책 북마크 목록을 보려면
+     * 즐겨찾기 탭 → "내 북마크" 섹션.
+     */
+    private void showBookmarks() {
+        if (!paginationReady || text.isEmpty() || bookmarksRepo == null) return;
+        int start = pageRenderer.getPageStartOffset(currentPage);
+        int end = (currentPage + 1 < pageRenderer.getPageCount())
+                ? pageRenderer.getPageStartOffset(currentPage + 1)
+                : text.length();
+        bookmarksRepo.toggleAtPage(fileHash, start, end, text, nasSyncManager.deviceId());
     }
 
     private void nextPage() {
@@ -391,9 +493,6 @@ public class ReaderActivity extends AppCompatActivity {
 
     private void setupTouchHandler() {
         GestureDetector detector = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
-            // onSingleTapUp (not onSingleTapConfirmed) so taps fire immediately
-            // without waiting for the double-tap timeout — fast consecutive taps
-            // were being swallowed and felt like dropped frames.
             @Override
             public boolean onSingleTapUp(MotionEvent e) {
                 float x = e.getX();
@@ -406,6 +505,22 @@ public class ReaderActivity extends AppCompatActivity {
                     toggleUIBars();
                 }
                 return true;
+            }
+
+            /**
+             * 리더 L→R 스와이프 → finish() 로 리스트 복귀 (item 2).
+             * 가로 우세 + 속도/거리 임계값을 넘어야 페이지 탭과 혼동되지 않음.
+             */
+            @Override
+            public boolean onFling(MotionEvent e1, MotionEvent e2, float vx, float vy) {
+                if (e1 == null || e2 == null) return false;
+                float dx = e2.getX() - e1.getX();
+                float dy = Math.abs(e2.getY() - e1.getY());
+                if (dx > 200 && Math.abs(dx) > dy * 2 && Math.abs(vx) > 800) {
+                    finish();
+                    return true;
+                }
+                return false;
             }
         });
         pageView.setOnTouchListener((v, event) -> {
@@ -426,11 +541,49 @@ public class ReaderActivity extends AppCompatActivity {
 
     // ── UI toggle ────────────────────────────────────────────────────────────
 
+    /**
+     * 가운데 탭 → 현재 상태 토글.
+     * 숨김 상태면 fade-in + 3초 후 auto-hide. 표시 상태면 즉시 fade-out.
+     */
     private void toggleUIBars() {
-        uiVisible = !uiVisible;
-        int vis = uiVisible ? View.VISIBLE : View.GONE;
-        topBar.setVisibility(vis);
-        bottomBar.setVisibility(vis);
+        if (uiVisible) hideUIBars();
+        else showUIBarsWithAutoHide();
+    }
+
+    private void showUIBarsWithAutoHide() {
+        uiVisible = true;
+        uiHideHandler.removeCallbacks(uiHideRunnable);
+        fadeInToVisible(topMenuRow);
+        fadeInToVisible(bottomBar);
+        uiHideHandler.postDelayed(uiHideRunnable, UI_AUTO_HIDE_DELAY_MS);
+    }
+
+    private void hideUIBars() {
+        uiVisible = false;
+        uiHideHandler.removeCallbacks(uiHideRunnable);
+        fadeOutToGone(topMenuRow);
+        fadeOutToGone(bottomBar);
+    }
+
+    private void fadeInToVisible(View v) {
+        if (v == null) return;
+        v.animate().cancel();
+        v.setAlpha(0f);
+        v.setVisibility(View.VISIBLE);
+        v.animate().alpha(1f).setDuration(UI_FADE_DURATION_MS).start();
+    }
+
+    private void fadeOutToGone(View v) {
+        if (v == null) return;
+        v.animate().cancel();
+        v.animate()
+                .alpha(0f)
+                .setDuration(UI_FADE_DURATION_MS)
+                .withEndAction(() -> {
+                    v.setVisibility(View.GONE);
+                    v.setAlpha(1f); // reset for next show
+                })
+                .start();
     }
 
     private void showLoading(boolean show) {
@@ -496,8 +649,21 @@ public class ReaderActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        if (bookmarksRepo != null) bookmarksRepo.clearOnChangedListener();
+        uiHideHandler.removeCallbacks(uiHideRunnable);
         tts.shutdown();
         executor.shutdown();
+    }
+
+    /** 들어올 때 애니와 반대 방향으로 나감 — 세로: 아래로 / 가로: 오른쪽으로. */
+    @Override
+    public void finish() {
+        super.finish();
+        boolean landscape = getResources().getConfiguration().orientation
+                == Configuration.ORIENTATION_LANDSCAPE;
+        overridePendingTransition(
+                landscape ? R.anim.reader_enter_from_left  : R.anim.reader_enter_from_top,
+                landscape ? R.anim.reader_exit_to_right    : R.anim.reader_exit_to_bottom);
     }
 
     private float spToPx(float sp) {

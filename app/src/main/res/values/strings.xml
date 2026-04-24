@@ -1,3 +1,16 @@
 <resources>
     <string name="app_name">Minseo3</string>
+
+    <!-- Bookmarks -->
+    <string name="bookmarks_title">북마크</string>
+    <string name="bookmark_delete">삭제하기</string>
+    <string name="bookmark_no_preview">(프리뷰 없음)</string>
+
+    <string name="back_to_list">목록으로</string>
+
+    <!-- Favorites tab -->
+    <string name="tab_favorites">즐겨찾기</string>
+    <string name="section_my_bookmarks">내 북마크</string>
+    <string name="section_other_devices">다른 단말 진행</string>
+    <string name="my_bookmarks_empty">아직 북마크가 없습니다.\n책을 열어 별 아이콘으로 추가하세요.</string>
 </resources>

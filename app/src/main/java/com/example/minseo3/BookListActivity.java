@@ -8,6 +8,8 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.provider.Settings;
+import android.view.GestureDetector;
+import android.view.MotionEvent;
 
 import androidx.activity.OnBackPressedCallback;
 import androidx.annotation.NonNull;
@@ -21,10 +23,13 @@ import androidx.viewpager2.widget.ViewPager2;
 import com.google.android.material.tabs.TabLayout;
 import com.google.android.material.tabs.TabLayoutMediator;
 
+import java.io.File;
+
 /**
- * 두 탭을 품은 메인 목록 화면 — "내 책" (로컬, 중첩 폴더 지원) + "NAS" (여러 단말의 읽기 기록).
- * 저장소 권한 로직은 Activity 레벨에서 유지하고, 권한 획득 시 BookListFragment 에 reload() 호출.
- * 뒤로가기는 "내 책" 탭의 폴더 스택을 우선 소비한 뒤 기본 동작으로 빠짐.
+ * 두 탭을 품은 메인 목록 화면 — "내 책" (로컬, 중첩 폴더 지원) + "즐겨찾기"
+ * (내 북마크 + 다른 단말 읽기 기록). 저장소 권한 로직은 Activity 레벨에서 유지하고,
+ * 권한 획득 시 BookListFragment 에 reload() 호출. 뒤로가기는 "내 책" 탭의 폴더
+ * 스택을 우선 소비한 뒤 기본 동작으로 빠짐.
  */
 public class BookListActivity extends AppCompatActivity {
 
@@ -32,6 +37,12 @@ public class BookListActivity extends AppCompatActivity {
 
     private ViewPager2 viewPager;
     private PagerAdapter pagerAdapter;
+    private GestureDetector swipeDetector;
+
+    /** 리스트 R→L 스와이프 시 재오픈할 "직전에 읽던 책" 경로.
+     *  앱 시작 직후엔 null (스와이프 해도 no-op). 리더 진입 시 세팅됨.
+     *  세션 내 메모리 (프로세스 종료 시 소실) — 사용자 의도에 맞춤. */
+    private String lastOpenedBookPath;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -49,7 +60,7 @@ public class BookListActivity extends AppCompatActivity {
         viewPager.setAdapter(pagerAdapter);
 
         new TabLayoutMediator(tabLayout, viewPager, (tab, position) -> {
-            tab.setText(position == 0 ? "내 책" : "NAS");
+            tab.setText(position == 0 ? "내 책" : getString(R.string.tab_favorites));
         }).attach();
 
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
@@ -65,7 +76,52 @@ public class BookListActivity extends AppCompatActivity {
             }
         });
 
+        swipeDetector = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
+            @Override
+            public boolean onFling(MotionEvent e1, MotionEvent e2, float vx, float vy) {
+                if (e1 == null || e2 == null) return false;
+                // 즐겨찾기 탭 (position 1) 에서만 작동.
+                if (viewPager.getCurrentItem() != 1) return false;
+                if (lastOpenedBookPath == null) return false;
+                float dx = e2.getX() - e1.getX();
+                float dy = Math.abs(e2.getY() - e1.getY());
+                // R→L fling: dx 음수, 가로 우세, 충분한 속도.
+                if (dx < -200 && Math.abs(dx) > dy * 2 && Math.abs(vx) > 800) {
+                    reopenLastBookWithoutAnimation();
+                    return true;
+                }
+                return false;
+            }
+        });
+
         checkPermissions();
+    }
+
+    /** Fragment 에서 호출 — 사용자가 리더를 열 때 세션 메모리에 기록. */
+    public void noteOpenedBook(String filePath) {
+        this.lastOpenedBookPath = filePath;
+    }
+
+    private void reopenLastBookWithoutAnimation() {
+        if (lastOpenedBookPath == null) return;
+        File file = new File(lastOpenedBookPath);
+        if (!file.exists()) {
+            // 파일이 사라졌으면 세션 기록 폐기.
+            lastOpenedBookPath = null;
+            return;
+        }
+        Intent intent = new Intent(this, ReaderActivity.class);
+        intent.putExtra(ReaderActivity.EXTRA_FILE_PATH, lastOpenedBookPath);
+        intent.putExtra(ReaderActivity.EXTRA_NO_ANIMATION, true);
+        ReaderActivity.startReader(this, intent);
+    }
+
+    @Override
+    public boolean dispatchTouchEvent(MotionEvent ev) {
+        // GestureDetector 에 전달만 하고 실제 dispatch 는 그대로 진행
+        // (ViewPager2 / 탭의 정상 스와이프를 방해하지 않음).
+        if (swipeDetector != null) swipeDetector.onTouchEvent(ev);
+        return super.dispatchTouchEvent(ev);
     }
 
     public boolean hasStoragePermissionPublic() {
@@ -111,7 +167,7 @@ public class BookListActivity extends AppCompatActivity {
 
         @NonNull @Override
         public Fragment createFragment(int position) {
-            return position == 0 ? new BookListFragment() : new NasHistoryFragment();
+            return position == 0 ? new BookListFragment() : new FavoritesFragment();
         }
     }
 }
