@@ -75,6 +75,10 @@ public class BookListActivity extends AppCompatActivity {
      *  가지므로 인스턴스가 나뉘면 한쪽 mutation 이 다른 쪽에 보이지 않음. */
     @Nullable private BookmarksRepository bookmarksRepo;
 
+    /** 앱 전체가 공유하는 진행률 저장소 — 리더에서 save 한 값을 "내 책" 탭에서
+     *  %/시각으로 표시. BookmarksRepository 와 같은 이유로 싱글턴. */
+    @Nullable private LocalProgressRepository progressRepo;
+
     /** 런치 결정에서 NAS fetch 를 쓰기 위해 보관. onCreate 생성, 프로세스 동안 유지. */
     @Nullable private NasSyncManager nasSyncManager;
 
@@ -85,7 +89,6 @@ public class BookListActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_book_list);
-        setTitle("소설 목록");
 
         // 회전 등 config change 후 복원 — 리더 페이지에 있던 사용자는 그대로 리더 유지.
         if (savedInstanceState != null) {
@@ -215,6 +218,12 @@ public class BookListActivity extends AppCompatActivity {
         return bookmarksRepo;
     }
 
+    /** Fragment 에서 공유 진행률 repo 를 받아감. */
+    @NonNull public LocalProgressRepository getProgressRepo() {
+        if (progressRepo == null) progressRepo = new LocalProgressRepository(this);
+        return progressRepo;
+    }
+
     /**
      * 리더에서 테마 (배경/글자색) 가 바뀌었을 때 자식 프래그먼트들이 루트를 다시 칠
      * 하도록 트리거. Activity 자체 루트도 갱신. 자식은 onResume 타이밍에 ThemePrefs 를
@@ -243,6 +252,7 @@ public class BookListActivity extends AppCompatActivity {
         this.currentBookPath = filePath;
         this.currentBookStartOffset = startOffset;
         this.currentBookSkipConflict = skipConflict;
+        applyChromeForPosition(2);
         viewPager.setCurrentItem(2, true);
     }
 
@@ -271,8 +281,7 @@ public class BookListActivity extends AppCompatActivity {
         if (launchDecisionRan) return;
         launchDecisionRan = true;
 
-        LocalProgressRepository progressRepo = new LocalProgressRepository(this);
-        LocalProgressRepository.Entry local = progressRepo.getMostRecent();
+        LocalProgressRepository.Entry local = getProgressRepo().getMostRecent();
         long localEpoch = local != null ? local.lastRead : 0L;
         String lastExit = AppSessionPrefs.getLastExitMode(this);
 

@@ -35,6 +35,11 @@ public class BookListFragment extends Fragment implements BookListActivity.Theme
     private BookAdapter adapter;
     private File currentDir;
 
+    /** 리더에서 save 하면 main 스레드로 호출됨 → 리스트 %/시각 즉시 갱신. */
+    private final Runnable onProgressChanged = () -> {
+        if (getView() != null) reload();
+    };
+
     @Nullable @Override
     public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container,
                              @Nullable Bundle savedInstanceState) {
@@ -44,7 +49,11 @@ public class BookListFragment extends Fragment implements BookListActivity.Theme
     @Override
     public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
-        progressRepo = new LocalProgressRepository(requireContext());
+        // 호스트 Activity 의 공유 progressRepo — 리더의 save 가 즉시 보임.
+        // 이 Fragment 는 BookListActivity 에만 호스트됨 — 아니면 ClassCastException 이 정답.
+        progressRepo = ((BookListActivity) requireActivity()).getProgressRepo();
+        progressRepo.addChangedListener(onProgressChanged);
+
         recyclerView = view.findViewById(R.id.recycler_view);
         tvEmpty = view.findViewById(R.id.tv_empty);
         currentDir = FileUtils.getNovelDir();
@@ -53,6 +62,12 @@ public class BookListFragment extends Fragment implements BookListActivity.Theme
         adapter = new BookAdapter();
         recyclerView.setAdapter(adapter);
         applyTheme();
+    }
+
+    @Override
+    public void onDestroyView() {
+        if (progressRepo != null) progressRepo.removeChangedListener(onProgressChanged);
+        super.onDestroyView();
     }
 
     @Override

@@ -4,6 +4,20 @@ All notable changes to this project are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versions use 4-digit `MAJOR.MINOR.PATCH.MICRO`.
 
+## [0.4.0.0] - 2026-04-24
+
+### Added
+- **한국어 .txt 인코딩 자동 감지.** BOM 감지 → UTF-8 strict 검증 → CP949/EUC-KR 폴백 순서로 자동 판별. 기존에 깨지던 CP949 소설 파일 정상 표시. `PaginationCache.CACHE_VERSION` 2로 올려 구 offset 무효화.
+- **글자 크기 슬라이더 실시간 프리뷰.** 슬라이더 드래그 중엔 현재 화면만 즉시 재렌더 (paginate 없음), 손가락을 뗄 때만 전체 페이지 재계산. 대용량 파일에서 로딩 서클 체감 대폭 감소. `PageView.setTextSizePx` + `SettingsBottomSheet.Listener.onSizePreview`.
+- **pagination 취소 가능 + 진행률 표시.** `PageRenderer.paginate` 오버로드로 `AtomicBoolean cancelled` + `IntConsumer onProgress` 지원. 크기 변경 시 이전 작업 즉시 취소. 진행률 SeekBar 실시간 갱신.
+
+### Fixed
+- **탭 간 실시간 동기화.** 리더에서 저장한 진행률이 "내 책" 탭에 즉시 반영되지 않던 문제, 즐겨찾기 북마크 간헐적 stale 현상 수정. `LocalProgressRepository` / `BookmarksRepository` 공유 싱글턴 + `CopyOnWriteArrayList<Runnable>` 다중 리스너 도입.
+- **리스트→리더 전환 시 chrome 점프 제거.** `openBook()` 에서 슬라이드 애니메이션 시작 전 AppBar GONE + system bars 숨김을 선제 적용, 애니메이션 종료 시점의 레이아웃 이중 점프 제거.
+
+### Changed
+- **리스트 상단 Toolbar 제거.** 56dp 높이의 빈 타이틀 Toolbar 삭제 — 리더 ↔ 리스트 전환 시 상단 chrome 위치 차이 ~96dp → ~40dp 감소.
+
 ## [0.3.0.0] - 2026-04-24
 
 ### Added

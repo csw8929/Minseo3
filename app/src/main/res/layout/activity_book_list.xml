@@ -6,15 +6,13 @@
     android:layout_height="match_parent"
     android:orientation="vertical">
 
+    <!-- 상단 chrome — TabLayout 만. 구 Toolbar (56dp, 빈 타이틀) 은 제거.
+         리스트 ↔ 리더 스와이프 시 상단 chrome 두께 차이를 줄이는 게 목적.
+         총 높이: status bar padding + TabLayout ≈ 24+48 = 72dp (이전 128dp). -->
     <com.google.android.material.appbar.AppBarLayout
         android:id="@+id/app_bar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content">
-
-        <androidx.appcompat.widget.Toolbar
-            android:id="@+id/toolbar"
-            android:layout_width="match_parent"
-            android:layout_height="?attr/actionBarSize" />
 
         <com.google.android.material.tabs.TabLayout
             android:id="@+id/tab_layout"

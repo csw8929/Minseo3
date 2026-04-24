@@ -99,6 +99,10 @@ public class ReaderFragment extends Fragment {
     private int lastKnownOffset = 0;
     private int paginateGeneration = 0;
 
+    /** 현재 진행 중인 full paginate 의 취소 토큰. 새 paginate 시작 시 이전 것을 true 로 set. */
+    private java.util.concurrent.atomic.AtomicBoolean paginateCancelled =
+            new java.util.concurrent.atomic.AtomicBoolean(false);
+
     private final Handler saveHandler = new Handler(Looper.getMainLooper());
     private final Runnable saveRunnable = () -> executor.execute(() -> {
         if (text.isEmpty() || fileHash.isEmpty()) return;
@@ -139,13 +143,13 @@ public class ReaderFragment extends Fragment {
 
         // top_menu_row / bottom_bar 는 XML 에서 이미 visibility=gone. 건드릴 필요 없음.
 
-        progressRepo = new LocalProgressRepository(requireContext());
+        // 호스트 Activity 의 공유 repo 사용 — 다른 탭과 같은 인스턴스를 봐야
+        // 한쪽 mutation 이 다른 쪽에 즉시 반영됨 (리스너 포함).
+        progressRepo = ((BookListActivity) requireActivity()).getProgressRepo();
         nasSyncManager = new NasSyncManager(requireContext());
         paginationCache = new PaginationCache(requireContext());
-        // 호스트 Activity 의 공유 repo 사용 — 즐겨찾기 탭과 같은 인스턴스를 봐야
-        // 한쪽 mutation 이 다른 쪽 refresh 에 즉시 반영됨.
         bookmarksRepo = ((BookListActivity) requireActivity()).getBookmarksRepo();
-        bookmarksRepo.setOnChangedListener(bookmarksChangedListener);
+        bookmarksRepo.addChangedListener(bookmarksChangedListener);
 
         readerPrefs = requireContext().getSharedPreferences(PREFS_NAME, android.content.Context.MODE_PRIVATE);
         textSizeSp = readerPrefs.getFloat(PREF_TEXT_SIZE_SP, textSizeSp);
@@ -281,6 +285,12 @@ public class ReaderFragment extends Fragment {
         seekBar.setEnabled(false);
         final int myGen = ++paginateGeneration;
 
+        // 이전에 돌고 있던 full paginate 가 있으면 즉시 취소 신호 — 새 파라미터로 재시작.
+        paginateCancelled.set(true);
+        final java.util.concurrent.atomic.AtomicBoolean myCancelled =
+                new java.util.concurrent.atomic.AtomicBoolean(false);
+        paginateCancelled = myCancelled;
+
         executor.execute(() -> {
             int[] cached = paginationCache.load(fileHash, sizeSpInt, w, h);
             if (cached != null && cached.length > 0) {
@@ -297,6 +307,9 @@ public class ReaderFragment extends Fragment {
                 return;
             }
 
+            // 새 태스크가 큐에서 꺼내지는 시점에 이미 또 다른 paginate 로 덮어써졌다면 조기 탈출.
+            if (myCancelled.get()) return;
+
             CharSequence firstPage = PageRenderer.computeFirstPageText(
                     text, startOffset, textSizePx, w, h);
             mainHandler.post(() -> {
@@ -304,11 +317,21 @@ public class ReaderFragment extends Fragment {
                 showLoading(false);
                 pageView.setPage(firstPage, textSizePx, textColor, bgColor);
                 tvPageInfo.setText("…");
-                tvStatusLeft.setText("…");
+                tvStatusLeft.setText("페이지 계산 중 0%");
                 seekBar.setProgress(0);
             });
 
-            pageRenderer.paginate(text, textSizePx, w, h);
+            pageRenderer.paginate(text, textSizePx, w, h, myCancelled, pct -> {
+                mainHandler.post(() -> {
+                    if (myGen != paginateGeneration) return;
+                    if (myCancelled.get()) return;
+                    tvStatusLeft.setText("페이지 계산 중 " + pct + "%");
+                });
+            });
+
+            // 취소됐다면 pageOffsets 가 비어있으므로 cache save / displayPage 모두 스킵.
+            if (myCancelled.get()) return;
+
             int[] offsets = pageRenderer.getOffsetsArray();
             paginationCache.save(fileHash, sizeSpInt, w, h, offsets);
             int page = pageRenderer.offsetToPage(startOffset);
@@ -577,29 +600,38 @@ public class ReaderFragment extends Fragment {
 
     private void showSettings() {
         SettingsBottomSheet sheet = SettingsBottomSheet.newInstance(textSizeSp, textColor, bgColor, tapSwap);
-        sheet.setListener((newSizeSp, newTextColor, newBgColor, newTapSwap) -> {
-            boolean sizeChanged = newSizeSp != textSizeSp;
-            textSizeSp = newSizeSp;
-            textColor = newTextColor;
-            bgColor = newBgColor;
-            tapSwap = newTapSwap;
-            readerPrefs.edit()
-                    .putFloat(PREF_TEXT_SIZE_SP, textSizeSp)
-                    .putInt(PREF_TEXT_COLOR, textColor)
-                    .putInt(PREF_BG_COLOR, bgColor)
-                    .putBoolean(PREF_TAP_SWAP, tapSwap)
-                    .apply();
-            if (sizeChanged) {
-                showLoading(true);
-                pageView.post(() -> paginate(lastKnownOffset));
-            } else {
-                pageView.setPage(pageRenderer.getPageText(text, currentPage), spToPx(textSizeSp), textColor, bgColor);
-                pageView.setColors(textColor, bgColor);
+        sheet.setListener(new SettingsBottomSheet.Listener() {
+            @Override public void onSizePreview(float newSizeSp) {
+                // 드래그 중 싼 프리뷰 — 현재 페이지 텍스트를 새 크기로 리드로우만 한다.
+                // 페이지 경계는 옛 크기 기준이라 상/하가 잘리거나 남을 수 있지만 프리뷰 용도이므로 OK.
+                // textSizeSp 필드 / prefs 는 건드리지 않음 (아직 commit 전).
+                pageView.setTextSizePx(spToPx(newSizeSp));
             }
-            requireView().findViewById(R.id.reader_root).setBackgroundColor(bgColor);
-            // 호스트 Activity 에 테마 바뀐 사실 통지 — 내 책 / 즐겨찾기 페이지도 같은 bg.
-            if (requireActivity() instanceof BookListActivity) {
-                ((BookListActivity) requireActivity()).applyTheme();
+
+            @Override public void onChanged(float newSizeSp, int newTextColor, int newBgColor, boolean newTapSwap) {
+                boolean sizeChanged = newSizeSp != textSizeSp;
+                textSizeSp = newSizeSp;
+                textColor = newTextColor;
+                bgColor = newBgColor;
+                tapSwap = newTapSwap;
+                readerPrefs.edit()
+                        .putFloat(PREF_TEXT_SIZE_SP, textSizeSp)
+                        .putInt(PREF_TEXT_COLOR, textColor)
+                        .putInt(PREF_BG_COLOR, bgColor)
+                        .putBoolean(PREF_TAP_SWAP, tapSwap)
+                        .apply();
+                if (sizeChanged) {
+                    showLoading(true);
+                    pageView.post(() -> paginate(lastKnownOffset));
+                } else {
+                    pageView.setPage(pageRenderer.getPageText(text, currentPage), spToPx(textSizeSp), textColor, bgColor);
+                    pageView.setColors(textColor, bgColor);
+                }
+                requireView().findViewById(R.id.reader_root).setBackgroundColor(bgColor);
+                // 호스트 Activity 에 테마 바뀐 사실 통지 — 내 책 / 즐겨찾기 페이지도 같은 bg.
+                if (requireActivity() instanceof BookListActivity) {
+                    ((BookListActivity) requireActivity()).applyTheme();
+                }
             }
         });
         sheet.show(getChildFragmentManager(), "settings");
@@ -635,10 +667,11 @@ public class ReaderFragment extends Fragment {
 
     @Override
     public void onDestroyView() {
-        super.onDestroyView();
-        if (bookmarksRepo != null) bookmarksRepo.clearOnChangedListener();
+        // listener 해제는 super 보다 먼저 — super.onDestroyView 중 콜백이 뜨면 getView() null.
+        if (bookmarksRepo != null) bookmarksRepo.removeChangedListener(bookmarksChangedListener);
         uiHideHandler.removeCallbacks(uiHideRunnable);
         if (tts != null) tts.shutdown();
+        super.onDestroyView();
     }
 
     @Override

@@ -40,6 +40,20 @@ public class PageView extends View {
         invalidate();
     }
 
+    /**
+     * 현재 페이지 텍스트 그대로, 폰트 크기만 즉시 변경해서 리드로우.
+     * 설정 시트의 글자 크기 슬라이더를 드래그할 때 프리뷰용.
+     *
+     * 주의: 페이지 경계(pageOffsets) 는 이전 크기 기준이라 실제 내용이 현재 페이지
+     * 영역을 넘치거나 남을 수 있음 — preview 용도로만 사용하고, 슬라이더 release
+     * 시점에 반드시 paginate 로 commit 해야 한다.
+     */
+    public void setTextSizePx(float textSizePx) {
+        textPaint.setTextSize(textSizePx);
+        rebuildLayout();
+        invalidate();
+    }
+
     private void rebuildLayout() {
         int w = getWidth() - getPaddingLeft() - getPaddingRight();
         if (w <= 0 || pageText.length() == 0) {
