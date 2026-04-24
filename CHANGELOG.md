@@ -4,6 +4,15 @@ All notable changes to this project are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versions use 4-digit `MAJOR.MINOR.PATCH.MICRO`.
 
+## [0.4.1.0] - 2026-04-24
+
+### Changed
+- **앱 아이콘 리디자인.** 배경색 기본 보라(`#4527A0`) → 미드나잇 블루(`#1A1B2E`), 책 페이지 흰색 → 따뜻한 양피지(`#F5E2B8`), 바인딩 회색 → 가죽 갈색(`#8B6440`). 독서앱의 문학적 분위기에 맞는 아이콘으로 교체.
+- **리더 상단 메뉴 버튼 개선.** 텍스트만 있던 설정/NAS 버튼을 아이콘(24dp) + 레이블(11sp) 조합으로 변경, 높이 48dp → 56dp. 커스텀 벡터 아이콘 4종 추가: `ic_settings`, `ic_cloud_sync`, `ic_volume_up`, `ic_format_list`.
+- **리더 하단 버튼 아이콘 교체.** 구형 `@android:drawable/ic_media_play` / `ic_menu_revert` → 커스텀 `ic_volume_up` / `ic_format_list`. 시스템 기본 아이콘 의존성 제거.
+- **overlay 알파 통일.** 상태 바·메뉴·하단 바 네 곳의 배경색을 `#CC000000` → `#D9000000` 으로 일관화.
+- **Settings BottomSheet 드래그 핸들 추가.** 상단에 36×4dp 핸들 뷰 추가 — 바텀 시트임을 시각적으로 명시.
+
 ## [0.4.0.0] - 2026-04-24
 
 ### Added
