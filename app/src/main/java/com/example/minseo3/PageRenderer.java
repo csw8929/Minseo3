@@ -7,6 +7,8 @@ import android.text.TextPaint;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.IntConsumer;
 
 /**
  * Paginates text into pages using StaticLayout.
@@ -27,6 +29,23 @@ public class PageRenderer {
      * @param heightPx    available height (view height minus vertical padding)
      */
     public List<Integer> paginate(String text, float textSizePx, int widthPx, int heightPx) {
+        return paginate(text, textSizePx, widthPx, heightPx, null, null);
+    }
+
+    /**
+     * 취소 가능 + 진행률 콜백 버전.
+     *
+     * @param cancelled  null 이 아니면 주기적으로 체크. true 가 되면 빈 결과로 조기 반환.
+     * @param onProgress null 이 아니면 퍼센트 변할 때마다 호출. 호출자는 스레드 전환 담당.
+     *
+     * 설계 메모:
+     * - StaticLayout 생성 자체는 중단 불가 (네이티브 내부). 큰 파일도 보통 수백 ms.
+     * - 줄 순회 루프만 중단 가능. 수백만 줄에서 실효성 있음.
+     * - 취소 시 pageOffsets 는 "빈" 상태 ({0}) 로 남음. 호출자는 cancelled 를 체크해
+     *   getOffsetsArray 를 캐시하지 말 것.
+     */
+    public List<Integer> paginate(String text, float textSizePx, int widthPx, int heightPx,
+                                  AtomicBoolean cancelled, IntConsumer onProgress) {
         pageOffsets = new ArrayList<>();
         pageOffsets.add(0);
 
@@ -36,8 +55,25 @@ public class PageRenderer {
 
         StaticLayout layout = buildLayout(text, textSizePx, widthPx);
         float pageTopY = layout.getLineTop(0);
+        final int lineCount = layout.getLineCount();
+        int lastReportedPct = -1;
 
-        for (int line = 1; line < layout.getLineCount(); line++) {
+        for (int line = 1; line < lineCount; line++) {
+            // 취소 체크는 줄 단위면 충분. set/get 은 가벼움.
+            if (cancelled != null && cancelled.get()) {
+                pageOffsets = new ArrayList<>();
+                pageOffsets.add(0);
+                return Collections.unmodifiableList(pageOffsets);
+            }
+
+            if (onProgress != null) {
+                int pct = (int) (line * 100L / lineCount);
+                if (pct != lastReportedPct) {
+                    lastReportedPct = pct;
+                    onProgress.accept(pct);
+                }
+            }
+
             float lineBottom = layout.getLineBottom(line);
             if (lineBottom - pageTopY > heightPx) {
                 pageOffsets.add(layout.getLineStart(line));

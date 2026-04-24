@@ -99,6 +99,10 @@ public class ReaderFragment extends Fragment {
     private int lastKnownOffset = 0;
     private int paginateGeneration = 0;
 
+    /** 현재 진행 중인 full paginate 의 취소 토큰. 새 paginate 시작 시 이전 것을 true 로 set. */
+    private java.util.concurrent.atomic.AtomicBoolean paginateCancelled =
+            new java.util.concurrent.atomic.AtomicBoolean(false);
+
     private final Handler saveHandler = new Handler(Looper.getMainLooper());
     private final Runnable saveRunnable = () -> executor.execute(() -> {
         if (text.isEmpty() || fileHash.isEmpty()) return;
@@ -281,6 +285,12 @@ public class ReaderFragment extends Fragment {
         seekBar.setEnabled(false);
         final int myGen = ++paginateGeneration;
 
+        // 이전에 돌고 있던 full paginate 가 있으면 즉시 취소 신호 — 새 파라미터로 재시작.
+        paginateCancelled.set(true);
+        final java.util.concurrent.atomic.AtomicBoolean myCancelled =
+                new java.util.concurrent.atomic.AtomicBoolean(false);
+        paginateCancelled = myCancelled;
+
         executor.execute(() -> {
             int[] cached = paginationCache.load(fileHash, sizeSpInt, w, h);
             if (cached != null && cached.length > 0) {
@@ -297,6 +307,9 @@ public class ReaderFragment extends Fragment {
                 return;
             }
 
+            // 새 태스크가 큐에서 꺼내지는 시점에 이미 또 다른 paginate 로 덮어써졌다면 조기 탈출.
+            if (myCancelled.get()) return;
+
             CharSequence firstPage = PageRenderer.computeFirstPageText(
                     text, startOffset, textSizePx, w, h);
             mainHandler.post(() -> {
@@ -304,11 +317,21 @@ public class ReaderFragment extends Fragment {
                 showLoading(false);
                 pageView.setPage(firstPage, textSizePx, textColor, bgColor);
                 tvPageInfo.setText("…");
-                tvStatusLeft.setText("…");
+                tvStatusLeft.setText("페이지 계산 중 0%");
                 seekBar.setProgress(0);
             });
 
-            pageRenderer.paginate(text, textSizePx, w, h);
+            pageRenderer.paginate(text, textSizePx, w, h, myCancelled, pct -> {
+                mainHandler.post(() -> {
+                    if (myGen != paginateGeneration) return;
+                    if (myCancelled.get()) return;
+                    tvStatusLeft.setText("페이지 계산 중 " + pct + "%");
+                });
+            });
+
+            // 취소됐다면 pageOffsets 가 비어있으므로 cache save / displayPage 모두 스킵.
+            if (myCancelled.get()) return;
+
             int[] offsets = pageRenderer.getOffsetsArray();
             paginationCache.save(fileHash, sizeSpInt, w, h, offsets);
             int page = pageRenderer.offsetToPage(startOffset);
