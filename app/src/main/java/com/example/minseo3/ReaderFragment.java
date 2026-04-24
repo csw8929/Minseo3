@@ -600,29 +600,38 @@ public class ReaderFragment extends Fragment {
 
     private void showSettings() {
         SettingsBottomSheet sheet = SettingsBottomSheet.newInstance(textSizeSp, textColor, bgColor, tapSwap);
-        sheet.setListener((newSizeSp, newTextColor, newBgColor, newTapSwap) -> {
-            boolean sizeChanged = newSizeSp != textSizeSp;
-            textSizeSp = newSizeSp;
-            textColor = newTextColor;
-            bgColor = newBgColor;
-            tapSwap = newTapSwap;
-            readerPrefs.edit()
-                    .putFloat(PREF_TEXT_SIZE_SP, textSizeSp)
-                    .putInt(PREF_TEXT_COLOR, textColor)
-                    .putInt(PREF_BG_COLOR, bgColor)
-                    .putBoolean(PREF_TAP_SWAP, tapSwap)
-                    .apply();
-            if (sizeChanged) {
-                showLoading(true);
-                pageView.post(() -> paginate(lastKnownOffset));
-            } else {
-                pageView.setPage(pageRenderer.getPageText(text, currentPage), spToPx(textSizeSp), textColor, bgColor);
-                pageView.setColors(textColor, bgColor);
+        sheet.setListener(new SettingsBottomSheet.Listener() {
+            @Override public void onSizePreview(float newSizeSp) {
+                // 드래그 중 싼 프리뷰 — 현재 페이지 텍스트를 새 크기로 리드로우만 한다.
+                // 페이지 경계는 옛 크기 기준이라 상/하가 잘리거나 남을 수 있지만 프리뷰 용도이므로 OK.
+                // textSizeSp 필드 / prefs 는 건드리지 않음 (아직 commit 전).
+                pageView.setTextSizePx(spToPx(newSizeSp));
             }
-            requireView().findViewById(R.id.reader_root).setBackgroundColor(bgColor);
-            // 호스트 Activity 에 테마 바뀐 사실 통지 — 내 책 / 즐겨찾기 페이지도 같은 bg.
-            if (requireActivity() instanceof BookListActivity) {
-                ((BookListActivity) requireActivity()).applyTheme();
+
+            @Override public void onChanged(float newSizeSp, int newTextColor, int newBgColor, boolean newTapSwap) {
+                boolean sizeChanged = newSizeSp != textSizeSp;
+                textSizeSp = newSizeSp;
+                textColor = newTextColor;
+                bgColor = newBgColor;
+                tapSwap = newTapSwap;
+                readerPrefs.edit()
+                        .putFloat(PREF_TEXT_SIZE_SP, textSizeSp)
+                        .putInt(PREF_TEXT_COLOR, textColor)
+                        .putInt(PREF_BG_COLOR, bgColor)
+                        .putBoolean(PREF_TAP_SWAP, tapSwap)
+                        .apply();
+                if (sizeChanged) {
+                    showLoading(true);
+                    pageView.post(() -> paginate(lastKnownOffset));
+                } else {
+                    pageView.setPage(pageRenderer.getPageText(text, currentPage), spToPx(textSizeSp), textColor, bgColor);
+                    pageView.setColors(textColor, bgColor);
+                }
+                requireView().findViewById(R.id.reader_root).setBackgroundColor(bgColor);
+                // 호스트 Activity 에 테마 바뀐 사실 통지 — 내 책 / 즐겨찾기 페이지도 같은 bg.
+                if (requireActivity() instanceof BookListActivity) {
+                    ((BookListActivity) requireActivity()).applyTheme();
+                }
             }
         });
         sheet.show(getChildFragmentManager(), "settings");
