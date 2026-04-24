@@ -55,6 +55,11 @@ public class BookListActivity extends AppCompatActivity {
     private int currentBookStartOffset;
     private boolean currentBookSkipConflict;
 
+    private static final String STATE_BOOK_PATH = "state_book_path";
+    private static final String STATE_BOOK_OFFSET = "state_book_offset";
+    private static final String STATE_BOOK_SKIP_CONFLICT = "state_book_skip_conflict";
+    private static final String STATE_PAGER_POS = "state_pager_position";
+
     /** 앱 전체가 공유하는 북마크 저장소 — 리더와 즐겨찾기 탭이 같은 인스턴스를 봐야
      *  한쪽 변경이 즉시 다른 쪽 refresh 에 반영됨. Repository 는 in-memory 캐시를
      *  가지므로 인스턴스가 나뉘면 한쪽 mutation 이 다른 쪽에 보이지 않음. */
@@ -65,6 +70,13 @@ public class BookListActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_book_list);
         setTitle("소설 목록");
+
+        // 회전 등 config change 후 복원 — 리더 페이지에 있던 사용자는 그대로 리더 유지.
+        if (savedInstanceState != null) {
+            currentBookPath = savedInstanceState.getString(STATE_BOOK_PATH);
+            currentBookStartOffset = savedInstanceState.getInt(STATE_BOOK_OFFSET, 0);
+            currentBookSkipConflict = savedInstanceState.getBoolean(STATE_BOOK_SKIP_CONFLICT, false);
+        }
 
         new NasSyncManager(this);
 
@@ -147,6 +159,26 @@ public class BookListActivity extends AppCompatActivity {
         });
 
         checkPermissions();
+
+        // 복원된 savedInstanceState 에 리더 페이지(position 2) 정보가 있으면 그 탭 유지.
+        if (savedInstanceState != null) {
+            int savedPos = savedInstanceState.getInt(STATE_PAGER_POS, 0);
+            if (savedPos >= 0 && savedPos < 3) {
+                viewPager.post(() -> viewPager.setCurrentItem(savedPos, false));
+            }
+        }
+    }
+
+    @Override
+    protected void onSaveInstanceState(@NonNull Bundle outState) {
+        super.onSaveInstanceState(outState);
+        // 회전 등 config change 에서 book context 보존.
+        outState.putString(STATE_BOOK_PATH, currentBookPath);
+        outState.putInt(STATE_BOOK_OFFSET, currentBookStartOffset);
+        outState.putBoolean(STATE_BOOK_SKIP_CONFLICT, currentBookSkipConflict);
+        if (viewPager != null) {
+            outState.putInt(STATE_PAGER_POS, viewPager.getCurrentItem());
+        }
     }
 
     // ── Reader state accessors (ReaderFragment 가 사용) ─────────────────────
@@ -195,6 +227,12 @@ public class BookListActivity extends AppCompatActivity {
     /** 리더에서 목록(즐겨찾기)으로 복귀. 책 상태는 유지 — 다음 swipe 로 재오픈 가능. */
     public void navigateToFavorites() {
         viewPager.setCurrentItem(1, true);
+    }
+
+    /** ReaderFragment 가 NAS 충돌 해결을 완료했을 때 호출 — 이후 rotation 등으로
+     *  fragment 가 재생성되어도 다시 prompt 되지 않도록 host 수준으로 승격. */
+    public void markConflictResolvedForCurrentBook() {
+        currentBookSkipConflict = true;
     }
 
     /**

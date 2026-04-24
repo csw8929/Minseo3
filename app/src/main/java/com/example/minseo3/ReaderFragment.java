@@ -203,15 +203,20 @@ public class ReaderFragment extends Fragment {
             // 같은 책 — 이미 로드돼있음. 스킵.
             return;
         }
-        // 새 책 로드
+        // 새 책 로드 (최초 오픈 혹은 rotation 후 복원).
         hideEmptyState();
         filePath = path;
         fileHash = FileUtils.computeHash(file);
+        // rotation 복원 경로: onPause 에서 flushSaveNow 로 progressRepo 에 최신 offset
+        // 이 이미 저장됨. host.currentBookStartOffset 은 "최초 오픈 시점" 값이라
+        // 읽던 페이지와 다를 수 있으므로 progressRepo 우선.
+        LocalProgressRepository.Entry saved = progressRepo.get(fileHash);
+        int effectiveStartOffset = (saved != null) ? saved.charOffset : startOffset;
         skipConflictResolve = skipConflict;
         conflictResolved = false;
         loadedPath = path;
         tvFileName.setText(FileUtils.displayName(file));
-        loadFile(file, startOffset);
+        loadFile(file, effectiveStartOffset);
     }
 
     private void showEmptyState() {
@@ -325,6 +330,10 @@ public class ReaderFragment extends Fragment {
         if (skipConflictResolve || conflictResolved) return;
         if (!nasSyncManager.isEnabled() || !nasSyncManager.isConnected()) return;
         conflictResolved = true;
+        // Host 에 승격 — rotation 등으로 fragment 재생성되어도 다시 prompt 되지 않게.
+        if (requireActivity() instanceof BookListActivity) {
+            ((BookListActivity) requireActivity()).markConflictResolvedForCurrentBook();
+        }
 
         final int localOffset = pageRenderer.getPageStartOffset(currentPage);
         final LocalProgressRepository.Entry localEntry = progressRepo.get(fileHash);
