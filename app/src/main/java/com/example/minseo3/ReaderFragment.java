@@ -74,11 +74,14 @@ public class ReaderFragment extends Fragment {
     private static final String PREF_TEXT_SIZE_SP = "text_size_sp";
     private static final String PREF_TEXT_COLOR   = "text_color";
     private static final String PREF_BG_COLOR     = "bg_color";
+    private static final String PREF_TAP_SWAP     = "tap_swap";
 
     private SharedPreferences readerPrefs;
     private float textSizeSp = 17f;
     private int textColor = 0xFF222222;
     private int bgColor = 0xFFFFFFFF;
+    /** true 면 왼쪽 탭 = 다음 페이지, 오른쪽 탭 = 이전 페이지 (좌/우 기능 스왑). */
+    private boolean tapSwap = false;
 
     // ── Engine
     private final PageRenderer pageRenderer = new PageRenderer();
@@ -148,6 +151,7 @@ public class ReaderFragment extends Fragment {
         textSizeSp = readerPrefs.getFloat(PREF_TEXT_SIZE_SP, textSizeSp);
         textColor  = readerPrefs.getInt(PREF_TEXT_COLOR, textColor);
         bgColor    = readerPrefs.getInt(PREF_BG_COLOR, bgColor);
+        tapSwap    = readerPrefs.getBoolean(PREF_TAP_SWAP, false);
 
         view.findViewById(R.id.reader_root).setBackgroundColor(bgColor);
         pageView.setColors(textColor, bgColor);
@@ -487,9 +491,9 @@ public class ReaderFragment extends Fragment {
                 float x = e.getX();
                 float w = pageView.getWidth();
                 if (x < w / 3f) {
-                    requestPageMove(-1);
+                    requestPageMove(tapSwap ? +1 : -1);
                 } else if (x > 2f * w / 3f) {
-                    requestPageMove(+1);
+                    requestPageMove(tapSwap ? -1 : +1);
                 } else {
                     toggleUIBars();
                 }
@@ -563,16 +567,18 @@ public class ReaderFragment extends Fragment {
     // ── Settings ─────────────────────────────────────────────────────────────
 
     private void showSettings() {
-        SettingsBottomSheet sheet = SettingsBottomSheet.newInstance(textSizeSp, textColor, bgColor);
-        sheet.setListener((newSizeSp, newTextColor, newBgColor) -> {
+        SettingsBottomSheet sheet = SettingsBottomSheet.newInstance(textSizeSp, textColor, bgColor, tapSwap);
+        sheet.setListener((newSizeSp, newTextColor, newBgColor, newTapSwap) -> {
             boolean sizeChanged = newSizeSp != textSizeSp;
             textSizeSp = newSizeSp;
             textColor = newTextColor;
             bgColor = newBgColor;
+            tapSwap = newTapSwap;
             readerPrefs.edit()
                     .putFloat(PREF_TEXT_SIZE_SP, textSizeSp)
                     .putInt(PREF_TEXT_COLOR, textColor)
                     .putInt(PREF_BG_COLOR, bgColor)
+                    .putBoolean(PREF_TAP_SWAP, tapSwap)
                     .apply();
             if (sizeChanged) {
                 showLoading(true);

@@ -11,16 +11,18 @@ import android.widget.TextView;
 import androidx.core.content.ContextCompat;
 
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment;
+import com.google.android.material.materialswitch.MaterialSwitch;
 
 public class SettingsBottomSheet extends BottomSheetDialogFragment {
 
     public interface Listener {
-        void onChanged(float textSizeSp, int textColor, int bgColor);
+        void onChanged(float textSizeSp, int textColor, int bgColor, boolean tapSwap);
     }
 
     private static final String ARG_SIZE = "size";
     private static final String ARG_TEXT_COLOR = "text_color";
     private static final String ARG_BG_COLOR = "bg_color";
+    private static final String ARG_TAP_SWAP = "tap_swap";
 
     // Background themes: {bgColor, textColor}
     private static final int[][] THEMES = {
@@ -37,15 +39,17 @@ public class SettingsBottomSheet extends BottomSheetDialogFragment {
     private float currentSizeSp;
     private int currentTextColor;
     private int currentBgColor;
+    private boolean currentTapSwap;
     private View[] themeButtons;
     private Drawable selectedRing;
 
-    public static SettingsBottomSheet newInstance(float sizeSp, int textColor, int bgColor) {
+    public static SettingsBottomSheet newInstance(float sizeSp, int textColor, int bgColor, boolean tapSwap) {
         SettingsBottomSheet f = new SettingsBottomSheet();
         Bundle args = new Bundle();
         args.putFloat(ARG_SIZE, sizeSp);
         args.putInt(ARG_TEXT_COLOR, textColor);
         args.putInt(ARG_BG_COLOR, bgColor);
+        args.putBoolean(ARG_TAP_SWAP, tapSwap);
         f.setArguments(args);
         return f;
     }
@@ -60,6 +64,7 @@ public class SettingsBottomSheet extends BottomSheetDialogFragment {
         currentSizeSp = args != null ? args.getFloat(ARG_SIZE, 17f) : 17f;
         currentTextColor = args != null ? args.getInt(ARG_TEXT_COLOR, 0xFF222222) : 0xFF222222;
         currentBgColor = args != null ? args.getInt(ARG_BG_COLOR, 0xFFFFFFFF) : 0xFFFFFFFF;
+        currentTapSwap = args != null && args.getBoolean(ARG_TAP_SWAP, false);
 
         // Font size seek bar
         SeekBar seekSize = v.findViewById(R.id.seek_font_size);
@@ -98,6 +103,16 @@ public class SettingsBottomSheet extends BottomSheetDialogFragment {
         }
         updateSelectedThemeIndicator();
 
+        // Tap swap switch
+        MaterialSwitch switchTapSwap = v.findViewById(R.id.switch_tap_swap);
+        if (switchTapSwap != null) {
+            switchTapSwap.setChecked(currentTapSwap);
+            switchTapSwap.setOnCheckedChangeListener((btn, checked) -> {
+                currentTapSwap = checked;
+                notifyListener();
+            });
+        }
+
         return v;
     }
 
@@ -112,7 +127,7 @@ public class SettingsBottomSheet extends BottomSheetDialogFragment {
     }
 
     private void notifyListener() {
-        if (listener != null) listener.onChanged(currentSizeSp, currentTextColor, currentBgColor);
+        if (listener != null) listener.onChanged(currentSizeSp, currentTextColor, currentBgColor, currentTapSwap);
     }
 
     private int closestFontSizeIndex(float sp) {
