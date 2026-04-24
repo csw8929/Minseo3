@@ -263,14 +263,18 @@ public class NasSyncManager {
                 repo.deviceId(),
                 System.currentTimeMillis());
 
+        Log.i(TAG, "SACH push pos dispatch: fileHash=" + fileHash
+                + " offset=" + charOffset + "/" + totalChars
+                + " deviceId=" + repo.deviceId());
         networkExecutor.execute(() ->
                 repo.push(fileHash, pos, new RemoteProgressRepository.Callback<Void>() {
                     @Override public void onResult(Void v) {
                         connected = true;
+                        Log.i(TAG, "SACH push pos ok: fileHash=" + fileHash);
                     }
                     @Override public void onError(String msg) {
                         connected = false;
-                        Log.w(TAG, "push failed: " + msg);
+                        Log.w(TAG, "SACH push pos failed: fileHash=" + fileHash + " msg=" + msg);
                     }
                 }));
     }
@@ -278,16 +282,21 @@ public class NasSyncManager {
     /** "NAS" 탭 진입 시 호출. 비활성/미연결이면 빈 맵을 즉시 콜백. */
     public void fetchAll(RemoteProgressRepository.Callback<Map<String, RemotePosition>> cb) {
         if (!isEnabled() || !connected) {
+            Log.i(TAG, "SACH fetchAll pos skipped: enabled=" + isEnabled()
+                    + " connected=" + connected);
             cb.onResult(Collections.<String, RemotePosition>emptyMap());
             return;
         }
+        Log.i(TAG, "SACH fetchAll pos dispatch (다른 단말 진행 tab)");
         networkExecutor.execute(() -> repo.fetchAll(new RemoteProgressRepository.Callback<Map<String, RemotePosition>>() {
             @Override public void onResult(Map<String, RemotePosition> value) {
                 connected = true;
+                Log.i(TAG, "SACH fetchAll pos ok: count=" + (value == null ? 0 : value.size()));
                 cb.onResult(value);
             }
             @Override public void onError(String message) {
                 connected = false;
+                Log.w(TAG, "SACH fetchAll pos failed: " + message);
                 cb.onError(message);
             }
         }));
@@ -296,16 +305,21 @@ public class NasSyncManager {
     /** NAS 에서 pos_{fileHash}.json 삭제. "다른 단말 진행" 리스트에서 사용. */
     public void deletePosition(String fileHash, RemoteProgressRepository.Callback<Void> cb) {
         if (!isEnabled() || !connected) {
+            Log.i(TAG, "SACH delete pos skipped: fileHash=" + fileHash
+                    + " enabled=" + isEnabled() + " connected=" + connected);
             cb.onError("NAS 미연결");
             return;
         }
+        Log.i(TAG, "SACH delete pos dispatch: fileHash=" + fileHash);
         networkExecutor.execute(() -> repo.delete(fileHash, new RemoteProgressRepository.Callback<Void>() {
             @Override public void onResult(Void v) {
                 connected = true;
+                Log.i(TAG, "SACH delete pos ok: fileHash=" + fileHash);
                 cb.onResult(null);
             }
             @Override public void onError(String message) {
                 connected = false;
+                Log.w(TAG, "SACH delete pos failed: fileHash=" + fileHash + " msg=" + message);
                 cb.onError(message);
             }
         }));
@@ -324,20 +338,30 @@ public class NasSyncManager {
         synchronized (bookmarkPushScheduledAt) {
             bookmarkPushScheduledAt.put(fileHash, scheduledAt);
         }
+        int snapshotSize = snapshot == null ? 0 : snapshot.size();
+        Log.i(TAG, "SACH push bm scheduled: fileHash=" + fileHash
+                + " count=" + snapshotSize + " debounce=" + BOOKMARK_PUSH_DEBOUNCE_MS + "ms");
         networkExecutor.execute(() -> {
             try { Thread.sleep(BOOKMARK_PUSH_DEBOUNCE_MS); }
             catch (InterruptedException ignored) { Thread.currentThread().interrupt(); return; }
 
             synchronized (bookmarkPushScheduledAt) {
                 Long latest = bookmarkPushScheduledAt.get(fileHash);
-                if (latest == null || latest.longValue() != scheduledAt) return; // superseded
+                if (latest == null || latest.longValue() != scheduledAt) {
+                    Log.i(TAG, "SACH push bm superseded: fileHash=" + fileHash);
+                    return;
+                }
                 bookmarkPushScheduledAt.remove(fileHash);
             }
+            Log.i(TAG, "SACH push bm dispatch: fileHash=" + fileHash + " count=" + snapshotSize);
             bmRepo.push(fileHash, snapshot, new RemoteBookmarksRepository.Callback<Void>() {
-                @Override public void onResult(Void v) { connected = true; }
+                @Override public void onResult(Void v) {
+                    connected = true;
+                    Log.i(TAG, "SACH push bm ok: fileHash=" + fileHash);
+                }
                 @Override public void onError(String msg) {
                     connected = false;
-                    Log.w(TAG, "bm push failed: " + msg);
+                    Log.w(TAG, "SACH push bm failed: fileHash=" + fileHash + " msg=" + msg);
                 }
             });
         });
@@ -347,17 +371,23 @@ public class NasSyncManager {
     public void pullBookmarks(String fileHash,
                               RemoteBookmarksRepository.Callback<List<Bookmark>> cb) {
         if (!isEnabled() || !connected || bmRepo == null) {
+            Log.i(TAG, "SACH pull bm skipped: fileHash=" + fileHash
+                    + " enabled=" + isEnabled() + " connected=" + connected);
             cb.onResult(Collections.<Bookmark>emptyList());
             return;
         }
+        Log.i(TAG, "SACH pull bm dispatch: fileHash=" + fileHash);
         networkExecutor.execute(() ->
                 bmRepo.fetchOne(fileHash, new RemoteBookmarksRepository.Callback<List<Bookmark>>() {
                     @Override public void onResult(List<Bookmark> value) {
                         connected = true;
+                        int sz = value == null ? 0 : value.size();
+                        Log.i(TAG, "SACH pull bm ok: fileHash=" + fileHash + " count=" + sz);
                         cb.onResult(value == null ? Collections.<Bookmark>emptyList() : value);
                     }
                     @Override public void onError(String message) {
                         connected = false;
+                        Log.w(TAG, "SACH pull bm failed: fileHash=" + fileHash + " msg=" + message);
                         cb.onError(message);
                     }
                 }));
@@ -366,16 +396,23 @@ public class NasSyncManager {
     /** 책 열 때 1회 충돌 해결을 위해 호출. 비활성/미연결이면 null을 즉시 콜백. */
     public void fetchOne(String fileHash, RemoteProgressRepository.Callback<RemotePosition> cb) {
         if (!isEnabled() || !connected) {
+            Log.i(TAG, "SACH fetchOne pos skipped: fileHash=" + fileHash
+                    + " enabled=" + isEnabled() + " connected=" + connected);
             cb.onResult(null);
             return;
         }
+        Log.i(TAG, "SACH fetchOne pos dispatch: fileHash=" + fileHash);
         networkExecutor.execute(() -> repo.fetchOne(fileHash, new RemoteProgressRepository.Callback<RemotePosition>() {
             @Override public void onResult(RemotePosition value) {
                 connected = true;
+                Log.i(TAG, "SACH fetchOne pos ok: fileHash=" + fileHash
+                        + (value == null ? " (none)" : " offset=" + value.charOffset
+                          + " device=" + value.deviceId));
                 cb.onResult(value);
             }
             @Override public void onError(String message) {
                 connected = false;
+                Log.w(TAG, "SACH fetchOne pos failed: fileHash=" + fileHash + " msg=" + message);
                 cb.onError(message);
             }
         }));

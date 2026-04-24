@@ -3,6 +3,7 @@ package com.example.minseo3;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.Log;
 import android.text.format.DateUtils;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -71,7 +72,9 @@ public class NasHistoryFragment extends Fragment implements BookListActivity.The
     }
 
     private void refresh() {
+        Log.i("NasSync", "SACH favorites '다른 단말 진행' refresh start");
         if (!nas.isEnabled()) {
+            Log.i("NasSync", "SACH favorites refresh skipped: nas disabled");
             showMessage("NAS 동기화가 꺼져 있습니다.\n우측 상단 메뉴 → NAS 설정에서 활성화하세요.");
             return;
         }
@@ -95,13 +98,17 @@ public class NasHistoryFragment extends Fragment implements BookListActivity.The
     private void onFetched(Map<String, RemotePosition> map) {
         String myDeviceId = nas.deviceId();
         List<NasItem> items = new ArrayList<>();
+        int excludedOwn = 0;
         for (Map.Entry<String, RemotePosition> e : map.entrySet()) {
             RemotePosition p = e.getValue();
             // 이 섹션은 "다른 단말" 전용 — 내 기기에서 올린 항목은 제외한다.
-            if (myDeviceId != null && myDeviceId.equals(p.deviceId)) continue;
+            if (myDeviceId != null && myDeviceId.equals(p.deviceId)) { excludedOwn++; continue; }
             File local = FileUtils.findLocalByNameAndSize(p.fileName, p.fileSize);
             items.add(new NasItem(e.getKey(), p, local));
         }
+        Log.i("NasSync", "SACH favorites render: total=" + map.size()
+                + " myDeviceId=" + myDeviceId + " excludedOwn=" + excludedOwn
+                + " shown=" + items.size());
         items.sort(Comparator.comparingLong((NasItem it) -> it.pos.lastUpdatedEpoch).reversed());
         adapter.setItems(items);
 
