@@ -99,7 +99,7 @@ public class NasSettingsActivity extends AppCompatActivity {
     private void save(boolean silent) {
         FormValues f = readForm();
         nas.save(f.enabled, f.host, f.port, f.user, f.pass,
-                f.path.isEmpty() ? "/소설/.minseo/" : f.path,
+                f.path.isEmpty() ? "/web/.minseo/" : f.path,
                 f.lanHost, f.lanPort);
         if (!silent) {
             Toast.makeText(this, "저장되었습니다.", Toast.LENGTH_SHORT).show();
@@ -121,7 +121,7 @@ public class NasSettingsActivity extends AppCompatActivity {
         String testBaseUrl = NasSyncManager.buildBaseUrl(f.host, f.port);
         String testLanUrl  = NasSyncManager.buildBaseUrl(f.lanHost, f.lanPort);
         DsAuth.init(testBaseUrl, testLanUrl, f.user, f.pass, /*basePath*/ "/",
-                f.path.isEmpty() ? "/소설/.minseo/" : f.path);
+                f.path.isEmpty() ? "/web/.minseo/" : f.path);
 
         setFieldsEnabled(false);
         String probeNote = testLanUrl.isEmpty()

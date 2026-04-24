@@ -99,7 +99,7 @@ public class NasSyncManager {
         String host = readCfgString("HOST", "");
         Integer port = readCfgInt("PORT", null);
         String user = readCfgString("USER", "");
-        String path = readCfgString("PATH", "/소설/.minseo/");
+        String path = readCfgString("PATH", "/web/.minseo/");
         String lanHost = readCfgString("LAN_HOST", "");
         Integer lanPort = readCfgInt("LAN_PORT", null);
 
@@ -414,7 +414,7 @@ public class NasSyncManager {
         @Override public int     getPort()    { return sp.getInt(KEY_PORT, 5000); }
         @Override public String  getUser()    { return sp.getString(KEY_USER, ""); }
         @Override public String  getPass()    { return sp.getString(KEY_PASS, ""); }
-        @Override public String  getPath()    { return sp.getString(KEY_PATH, "/소설/.minseo/"); }
+        @Override public String  getPath()    { return sp.getString(KEY_PATH, "/web/.minseo/"); }
         @Override public String  getLanHost() { return sp.getString(KEY_LAN_HOST, ""); }
         @Override public int     getLanPort() { return sp.getInt(KEY_LAN_PORT, 5000); }
         @Override public void save(boolean enabled, String host, int port,

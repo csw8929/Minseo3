@@ -88,6 +88,12 @@ clear_on_device() {
   adb -s "$serial" shell pm clear "$PACKAGE"
 }
 
+uninstall_on_device() {
+  local serial="$1"
+  echo "  → $(display_name "$serial") 에서 $PACKAGE 제거 중..."
+  adb -s "$serial" uninstall "$PACKAGE"
+}
+
 # 디바이스 선택 서브메뉴. callback 함수 이름을 받아 선택된 시리얼로 호출.
 pick_device_and_run() {
   local title="$1"
@@ -126,8 +132,9 @@ pick_device_and_run() {
   "$callback" "${devices[$idx]}"
 }
 
-action_install_device() { pick_device_and_run "install — 디바이스 선택" install_on_device; }
-action_clear_device()   { pick_device_and_run "clear data — 디바이스 선택" clear_on_device; }
+action_install_device()   { pick_device_and_run "install — 디바이스 선택" install_on_device; }
+action_clear_device()     { pick_device_and_run "clear data — 디바이스 선택" clear_on_device; }
+action_uninstall_device() { pick_device_and_run "uninstall — 디바이스 선택" uninstall_on_device; }
 
 action_install_all() {
   local devices
@@ -165,6 +172,21 @@ action_clear_all() {
   done
 }
 
+action_uninstall_all() {
+  local devices
+  mapfile -t devices < <(list_devices)
+  if [ "${#devices[@]}" -eq 0 ]; then
+    echo ""
+    echo "  (연결된 디바이스 없음)"
+    return
+  fi
+  echo ""
+  echo "== uninstall all ($((${#devices[@]})) devices) =="
+  for s in "${devices[@]}"; do
+    uninstall_on_device "$s"
+  done
+}
+
 # ── 메인 루프 ───────────────────────────────────────────────────────────────
 
 main_menu() {
@@ -180,6 +202,8 @@ main_menu() {
     echo "│  3) install all devices — 전체 설치"
     echo "│  4) clear data          — 디바이스 선택해 데이터 삭제"
     echo "│  5) clear all data      — 전체 데이터 삭제"
+    echo "│  6) uninstall device    — 디바이스 선택해 앱 제거"
+    echo "│  7) uninstall all       — 전체 앱 제거"
     echo "│  9) build               — ./gradlew assembleDebug"
     echo "│  0) exit"
     echo "└────────────────────────────────────────────────────┘"
@@ -191,6 +215,8 @@ main_menu() {
       3) action_install_all ;;
       4) action_clear_device ;;
       5) action_clear_all ;;
+      6) action_uninstall_device ;;
+      7) action_uninstall_all ;;
       9) action_build ;;
       0|q) echo "bye"; exit 0 ;;
       "") ;;  # 빈 입력(Enter) 은 조용히 넘김

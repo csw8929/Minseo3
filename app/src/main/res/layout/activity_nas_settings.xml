@@ -132,7 +132,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:inputType="text"
-            android:hint="/소설/.minseo/"
+            android:hint="/web/.minseo/"
             android:autofillHints="off"
             android:layout_marginBottom="24dp" />
 
