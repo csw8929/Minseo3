@@ -4,7 +4,8 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+    <!-- 미드나잇 블루 — 독서앱의 차분하고 문학적인 분위기 -->
     <path
-        android:fillColor="#4527A0"
+        android:fillColor="#1A1B2E"
         android:pathData="M0,0h108v108h-108z" />
 </vector>
