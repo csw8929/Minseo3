@@ -45,7 +45,7 @@
         android:layout_gravity="top"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:background="#CC000000"
+        android:background="#D9000000"
         android:paddingStart="12dp"
         android:paddingEnd="12dp">
 
@@ -68,42 +68,80 @@
             android:format24Hour="HH:mm" />
     </LinearLayout>
 
-    <!-- 상단: 메뉴 (설정/NAS) — hideable, 중앙 tap 시 overlay. status strip 바로 아래에 뜸. -->
+    <!-- 상단: 메뉴 (설정/NAS) — 아이콘+텍스트 버튼, overlay. status strip 바로 아래. -->
     <LinearLayout
         android:id="@+id/top_menu_row"
         android:layout_width="match_parent"
-        android:layout_height="48dp"
+        android:layout_height="56dp"
         android:layout_gravity="top"
         android:layout_marginTop="32dp"
-        android:background="#CC000000"
+        android:background="#D9000000"
         android:orientation="horizontal"
+        android:gravity="center_vertical"
         android:visibility="gone">
 
-        <TextView
+        <!-- 설정 버튼 (아이콘 + 텍스트) -->
+        <LinearLayout
             android:id="@+id/menu_settings"
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
+            android:orientation="vertical"
             android:gravity="center"
             android:background="?attr/selectableItemBackground"
             android:clickable="true"
-            android:focusable="true"
-            android:textColor="#FFFFFF"
-            android:textSize="14sp"
-            android:text="설정" />
+            android:focusable="true">
 
-        <TextView
+            <ImageView
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:src="@drawable/ic_settings"
+                android:importantForAccessibility="no" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:textColor="#CCFFFFFF"
+                android:textSize="11sp"
+                android:letterSpacing="0.04"
+                android:text="설정" />
+        </LinearLayout>
+
+        <!-- 구분선 -->
+        <View
+            android:layout_width="1dp"
+            android:layout_height="28dp"
+            android:background="#44FFFFFF" />
+
+        <!-- NAS 버튼 (아이콘 + 텍스트) -->
+        <LinearLayout
             android:id="@+id/menu_nas"
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
+            android:orientation="vertical"
             android:gravity="center"
             android:background="?attr/selectableItemBackground"
             android:clickable="true"
-            android:focusable="true"
-            android:textColor="#FFFFFF"
-            android:textSize="14sp"
-            android:text="NAS" />
+            android:focusable="true">
+
+            <ImageView
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:src="@drawable/ic_cloud_sync"
+                android:importantForAccessibility="no" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:textColor="#CCFFFFFF"
+                android:textSize="11sp"
+                android:letterSpacing="0.04"
+                android:text="NAS" />
+        </LinearLayout>
+
     </LinearLayout>
 
     <!-- 하단: 컨트롤 바 (seekbar + 버튼) — hideable, 중앙 tap 시 overlay.
@@ -115,7 +153,7 @@
         android:layout_gravity="bottom"
         android:layout_marginBottom="32dp"
         android:orientation="vertical"
-        android:background="#CC000000"
+        android:background="#D9000000"
         android:padding="8dp"
         android:visibility="gone">
 
@@ -144,8 +182,7 @@
                 android:layout_width="40dp"
                 android:layout_height="40dp"
                 android:background="?attr/selectableItemBackgroundBorderless"
-                android:src="@android:drawable/ic_media_play"
-                android:tint="#FFFFFF"
+                android:src="@drawable/ic_volume_up"
                 android:contentDescription="TTS" />
 
             <TextView
@@ -163,8 +200,7 @@
                 android:layout_width="40dp"
                 android:layout_height="40dp"
                 android:background="?attr/selectableItemBackgroundBorderless"
-                android:src="@android:drawable/ic_menu_revert"
-                android:tint="#FFFFFF"
+                android:src="@drawable/ic_format_list"
                 android:contentDescription="@string/back_to_list" />
 
         </LinearLayout>
@@ -178,7 +214,7 @@
         android:layout_gravity="bottom"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:background="#CC000000"
+        android:background="#D9000000"
         android:paddingStart="12dp"
         android:paddingEnd="12dp">
 

@@ -7,7 +7,16 @@ Completed items move to the bottom under `## Completed`.
 
 ## Reader
 
-(none)
+### NAS 연결 실패 시 구체적 오류 피드백 (P2)
+**Priority:** P2
+**Why:** 현재 NAS 연결 실패 시 피드백이 토스트 한 줄뿐 — 타임아웃인지, 인증 오류인지,
+경로 오류인지 사용자가 알 수 없음. 로그캣 없이 디버그 불가.
+**Acceptance:** NAS 연결 실패 시 Snackbar (or 간단 다이얼로그) 로 실패 원인 표시.
+- `AUTH_FAILURE` → "NAS 인증 실패 — 비밀번호 확인"
+- `HOST_UNREACHABLE` → "NAS 연결 불가 — IP/도메인 확인"
+- `PATH_INVALID` → "경로 오류 — NAS 설정에서 경로 확인"
+- `TIMEOUT` → "NAS 응답 없음 — 네트워크 확인"
+**Depends on:** `SynologyDsmHelper` 에러 코드 분류 정비
 
 ---
 
