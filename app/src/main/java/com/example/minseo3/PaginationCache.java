@@ -20,7 +20,10 @@ import java.util.Arrays;
 public class PaginationCache {
 
     // Bump when LINE_SPACING_*, font face, or any layout-affecting constant changes.
-    private static final int CACHE_VERSION = 1;
+    // v2: FileUtils 가 CP949/UTF-16 자동 감지로 변경 — 이전까지 UTF-8 하드코딩이어서
+    //     non-UTF8 파일은 replacement char (�) 로 읽혀 char offset 이 왜곡됨.
+    //     감지 후엔 텍스트 길이가 달라지므로 기존 캐시 전부 무효화.
+    private static final int CACHE_VERSION = 2;
     private static final int MAX_ENTRIES = 200;
 
     private final File cacheDir;
