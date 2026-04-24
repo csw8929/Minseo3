@@ -36,6 +36,10 @@ android {
                 .outputFileName = "Minseo3.apk"
         }
     }
+
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
 }
 
 dependencies {
