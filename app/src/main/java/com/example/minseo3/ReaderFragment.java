@@ -143,13 +143,13 @@ public class ReaderFragment extends Fragment {
 
         // top_menu_row / bottom_bar 는 XML 에서 이미 visibility=gone. 건드릴 필요 없음.
 
-        progressRepo = new LocalProgressRepository(requireContext());
+        // 호스트 Activity 의 공유 repo 사용 — 다른 탭과 같은 인스턴스를 봐야
+        // 한쪽 mutation 이 다른 쪽에 즉시 반영됨 (리스너 포함).
+        progressRepo = ((BookListActivity) requireActivity()).getProgressRepo();
         nasSyncManager = new NasSyncManager(requireContext());
         paginationCache = new PaginationCache(requireContext());
-        // 호스트 Activity 의 공유 repo 사용 — 즐겨찾기 탭과 같은 인스턴스를 봐야
-        // 한쪽 mutation 이 다른 쪽 refresh 에 즉시 반영됨.
         bookmarksRepo = ((BookListActivity) requireActivity()).getBookmarksRepo();
-        bookmarksRepo.setOnChangedListener(bookmarksChangedListener);
+        bookmarksRepo.addChangedListener(bookmarksChangedListener);
 
         readerPrefs = requireContext().getSharedPreferences(PREFS_NAME, android.content.Context.MODE_PRIVATE);
         textSizeSp = readerPrefs.getFloat(PREF_TEXT_SIZE_SP, textSizeSp);
@@ -668,7 +668,7 @@ public class ReaderFragment extends Fragment {
     @Override
     public void onDestroyView() {
         super.onDestroyView();
-        if (bookmarksRepo != null) bookmarksRepo.clearOnChangedListener();
+        if (bookmarksRepo != null) bookmarksRepo.removeChangedListener(bookmarksChangedListener);
         uiHideHandler.removeCallbacks(uiHideRunnable);
         if (tts != null) tts.shutdown();
     }

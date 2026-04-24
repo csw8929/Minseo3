@@ -17,6 +17,7 @@ import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * Local bookmark storage — a single bookmarks.json in getFilesDir() groups
@@ -42,20 +43,24 @@ public class BookmarksRepository {
     // Rebuilt lazily; invalidated by every mutation / replaceAll.
     private final Map<String, long[]> aliveOffsetCache = new LinkedHashMap<>();
 
-    private Runnable onChanged;
+    /**
+     * Multi-listener — 리더와 즐겨찾기 탭이 동시에 mutation 을 관찰해야 하므로
+     * 단일 Runnable 가 아닌 리스트. 중복 등록은 무시 (같은 인스턴스 재 add 시 no-op).
+     */
+    private final CopyOnWriteArrayList<Runnable> listeners = new CopyOnWriteArrayList<>();
 
     public BookmarksRepository(Context context) {
         this.storageFile = new File(context.getFilesDir(), FILE_NAME);
         load();
     }
 
-    /** Registers a callback that fires on the main thread after any mutation. */
-    public synchronized void setOnChangedListener(Runnable r) {
-        this.onChanged = r;
+    /** mutation 시 main 스레드로 posted 되는 콜백 등록. 중복 add 는 무시. */
+    public void addChangedListener(Runnable r) {
+        if (r != null) listeners.addIfAbsent(r);
     }
 
-    public synchronized void clearOnChangedListener() {
-        this.onChanged = null;
+    public void removeChangedListener(Runnable r) {
+        if (r != null) listeners.remove(r);
     }
 
     /**
@@ -204,8 +209,8 @@ public class BookmarksRepository {
     }
 
     private void fireChanged() {
-        Runnable r = onChanged;
-        if (r != null) mainHandler.post(r);
+        // snapshot iteration: CopyOnWriteArrayList 이라 concurrent mutation safe.
+        for (Runnable r : listeners) mainHandler.post(r);
     }
 
     private void load() {

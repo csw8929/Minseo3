@@ -37,6 +37,11 @@ public class MyBookmarksFragment extends Fragment implements BookListActivity.Th
     private TextView tvEmpty;
     private BookmarksRepository bmRepo;
 
+    /** 리더에서 북마크 토글/삭제 시 main 스레드로 호출 → 리스트 즉시 갱신. */
+    private final Runnable onBookmarksChanged = () -> {
+        if (getView() != null) refresh();
+    };
+
     @Override public void applyTheme() {
         View v = getView();
         if (v != null) v.setBackgroundColor(ThemePrefs.bgColor(requireContext()));
@@ -58,7 +63,20 @@ public class MyBookmarksFragment extends Fragment implements BookListActivity.Th
         rv.addItemDecoration(new DividerItemDecoration(requireContext(), DividerItemDecoration.VERTICAL));
         adapter = new Adapter();
         rv.setAdapter(adapter);
+        // 공유 BookmarksRepository 리스너 등록 — 리더에서 토글 시 즉시 리스트 갱신.
+        // (기존엔 onResume 에서만 refresh — 스와이프 타이밍 / 중첩 fragment 수명주기 전파
+        // 지연으로 간헐적으로 stale 하던 증상이 여기서 해결됨.)
+        if (requireActivity() instanceof BookListActivity) {
+            bmRepo = ((BookListActivity) requireActivity()).getBookmarksRepo();
+            bmRepo.addChangedListener(onBookmarksChanged);
+        }
         applyTheme();
+    }
+
+    @Override
+    public void onDestroyView() {
+        if (bmRepo != null) bmRepo.removeChangedListener(onBookmarksChanged);
+        super.onDestroyView();
     }
 
     @Override
@@ -68,13 +86,15 @@ public class MyBookmarksFragment extends Fragment implements BookListActivity.Th
     }
 
     private void refresh() {
-        // 호스트 Activity 의 공유 repo 사용 — 리더에서 toggle 한 결과를 바로 봄.
-        if (getActivity() instanceof BookListActivity) {
+        // 공유 repo 들은 onViewCreated 에서 이미 잡았지만, 리스너 콜백 경로로 진입한
+        // 경우에도 안전하도록 null 체크 + 재바인딩.
+        if (bmRepo == null && getActivity() instanceof BookListActivity) {
             bmRepo = ((BookListActivity) getActivity()).getBookmarksRepo();
-        } else if (bmRepo == null) {
-            bmRepo = new BookmarksRepository(requireContext());
         }
-        LocalProgressRepository progressRepo = new LocalProgressRepository(requireContext());
+        if (bmRepo == null) return;
+        LocalProgressRepository progressRepo = (getActivity() instanceof BookListActivity)
+                ? ((BookListActivity) getActivity()).getProgressRepo()
+                : new LocalProgressRepository(requireContext());
 
         Map<String, List<Bookmark>> byHash = bmRepo.allAliveByHash();
         List<Item> items = new ArrayList<>();

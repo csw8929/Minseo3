@@ -1,6 +1,8 @@
 package com.example.minseo3;
 
 import android.content.Context;
+import android.os.Handler;
+import android.os.Looper;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -15,6 +17,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 public class LocalProgressRepository {
 
@@ -23,15 +26,35 @@ public class LocalProgressRepository {
     // LinkedHashMap preserves insertion order (most recently updated first after re-insert)
     private final Map<String, Entry> cache = new LinkedHashMap<>();
 
+    /**
+     * Multi-listener — "내 책" 탭과 리더가 동시에 save 를 관찰. 리더에서 save 하면
+     * 리스트 탭이 즉시 %/시각 갱신. main 스레드 post.
+     */
+    private final CopyOnWriteArrayList<Runnable> listeners = new CopyOnWriteArrayList<>();
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
+
     public LocalProgressRepository(Context context) {
         progressFile = new File(context.getFilesDir(), FILE_NAME);
         load();
+    }
+
+    public void addChangedListener(Runnable r) {
+        if (r != null) listeners.addIfAbsent(r);
+    }
+
+    public void removeChangedListener(Runnable r) {
+        if (r != null) listeners.remove(r);
     }
 
     public synchronized void save(String fileHash, String filePath, int charOffset, int totalChars) {
         cache.remove(fileHash); // remove then re-insert to move to end
         cache.put(fileHash, new Entry(fileHash, filePath, charOffset, totalChars, System.currentTimeMillis()));
         persist();
+        fireChanged();
+    }
+
+    private void fireChanged() {
+        for (Runnable r : listeners) mainHandler.post(r);
     }
 
     public synchronized Entry get(String fileHash) {
