@@ -18,12 +18,34 @@ import androidx.fragment.app.Fragment;
  * 각 섹션 타이틀 옆에 괄호로 항목 개수 표시. 자식 프래그먼트가 refresh 될 때마다
  * {@link #setMyBookmarkCount} / {@link #setOtherDeviceCount} 를 호출해 갱신.
  */
-public class FavoritesFragment extends Fragment {
+public class FavoritesFragment extends Fragment implements BookListActivity.ThemedFragment {
 
     private TextView tvSectionMyBookmarks;
     private TextView tvSectionOtherDevices;
     private int lastMyBookmarkCount = 0;
     private int lastOtherDeviceCount = 0;
+
+    @Override public void applyTheme() {
+        View v = getView();
+        if (v == null) return;
+        int bg = ThemePrefs.bgColor(requireContext());
+        int text = ThemePrefs.textColor(requireContext());
+        v.setBackgroundColor(bg);
+        if (tvSectionMyBookmarks != null) {
+            tvSectionMyBookmarks.setBackgroundColor(bg);
+            tvSectionMyBookmarks.setTextColor(text);
+        }
+        if (tvSectionOtherDevices != null) {
+            tvSectionOtherDevices.setBackgroundColor(bg);
+            tvSectionOtherDevices.setTextColor(text);
+        }
+        // 자식 fragment 들에도 전달.
+        for (Fragment child : getChildFragmentManager().getFragments()) {
+            if (child instanceof BookListActivity.ThemedFragment) {
+                ((BookListActivity.ThemedFragment) child).applyTheme();
+            }
+        }
+    }
 
     @Nullable @Override
     public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container,
@@ -45,6 +67,7 @@ public class FavoritesFragment extends Fragment {
                     .replace(R.id.container_nas_history, new NasHistoryFragment())
                     .commit();
         }
+        applyTheme();
     }
 
     /** 자식 MyBookmarksFragment 가 refresh 할 때 호출. */

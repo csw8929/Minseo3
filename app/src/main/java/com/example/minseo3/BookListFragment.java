@@ -22,7 +22,12 @@ import java.util.List;
  * "내 책" 탭 — 로컬 /소설/ 폴더 트리. 중첩 폴더 네비게이션 지원.
  * Activity 의 뒤로가기가 {@link #goUpIfPossible()} 을 먼저 호출해 폴더 스택을 소비.
  */
-public class BookListFragment extends Fragment {
+public class BookListFragment extends Fragment implements BookListActivity.ThemedFragment {
+
+    @Override public void applyTheme() {
+        View v = getView();
+        if (v != null) v.setBackgroundColor(ThemePrefs.bgColor(requireContext()));
+    }
 
     private RecyclerView recyclerView;
     private TextView tvEmpty;
@@ -47,6 +52,7 @@ public class BookListFragment extends Fragment {
         recyclerView.addItemDecoration(new DividerItemDecoration(requireContext(), DividerItemDecoration.VERTICAL));
         adapter = new BookAdapter();
         recyclerView.setAdapter(adapter);
+        applyTheme();
     }
 
     @Override
@@ -135,6 +141,10 @@ public class BookListFragment extends Fragment {
         @Override
         public void onBindViewHolder(@NonNull VH h, int pos) {
             BookItem item = items.get(pos);
+            int textColor = ThemePrefs.textColor(h.itemView.getContext());
+            h.tvTitle.setTextColor(textColor);
+            h.tvInfo.setTextColor(textColor);
+
             if (item.isDirectory) {
                 h.tvTitle.setText("📁 " + item.file.getName());
                 h.tvInfo.setText("폴더");

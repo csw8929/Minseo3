@@ -29,7 +29,13 @@ import java.util.List;
 import java.util.Map;
 
 /** "NAS" 탭 — 모든 기기에서 올라온 pos_*.json 목록. */
-public class NasHistoryFragment extends Fragment {
+public class NasHistoryFragment extends Fragment implements BookListActivity.ThemedFragment {
+
+    @Override public void applyTheme() {
+        View v = getView();
+        if (v != null) v.setBackgroundColor(ThemePrefs.bgColor(requireContext()));
+        if (adapter != null) adapter.notifyDataSetChanged();
+    }
 
     private RecyclerView recyclerView;
     private ProgressBar progress;
@@ -55,6 +61,7 @@ public class NasHistoryFragment extends Fragment {
         recyclerView.addItemDecoration(new DividerItemDecoration(requireContext(), DividerItemDecoration.VERTICAL));
         adapter = new NasAdapter();
         recyclerView.setAdapter(adapter);
+        applyTheme();
     }
 
     @Override
@@ -206,6 +213,10 @@ public class NasHistoryFragment extends Fragment {
             // 시간 옆에 괄호로 % — 사용자 요청 형식.
             h.tvInfo.setText("기기 " + deviceShort + " · " + ago + " (" + percent + "%)" + suffix);
             h.progressBar.setProgress(percent);
+
+            int textColor = ThemePrefs.textColor(h.itemView.getContext());
+            h.tvTitle.setTextColor(textColor);
+            h.tvInfo.setTextColor(textColor);
 
             float alpha = item.isActive() ? 1f : 0.4f;
             h.tvTitle.setAlpha(alpha);
