@@ -64,12 +64,11 @@ public class MyBookmarksFragment extends Fragment implements BookListActivity.Th
         adapter = new Adapter();
         rv.setAdapter(adapter);
         // 공유 BookmarksRepository 리스너 등록 — 리더에서 토글 시 즉시 리스트 갱신.
-        // (기존엔 onResume 에서만 refresh — 스와이프 타이밍 / 중첩 fragment 수명주기 전파
-        // 지연으로 간헐적으로 stale 하던 증상이 여기서 해결됨.)
-        if (requireActivity() instanceof BookListActivity) {
-            bmRepo = ((BookListActivity) requireActivity()).getBookmarksRepo();
-            bmRepo.addChangedListener(onBookmarksChanged);
-        }
+        // (기존엔 onResume 에서만 refresh — 스와이프 타이밍 / 중첩 fragment 수명주기
+        // 전파 지연으로 간헐적으로 stale 하던 증상이 여기서 해결됨.)
+        BookListActivity host = (BookListActivity) requireActivity();
+        bmRepo = host.getBookmarksRepo();
+        bmRepo.addChangedListener(onBookmarksChanged);
         applyTheme();
     }
 
@@ -86,15 +85,10 @@ public class MyBookmarksFragment extends Fragment implements BookListActivity.Th
     }
 
     private void refresh() {
-        // 공유 repo 들은 onViewCreated 에서 이미 잡았지만, 리스너 콜백 경로로 진입한
-        // 경우에도 안전하도록 null 체크 + 재바인딩.
-        if (bmRepo == null && getActivity() instanceof BookListActivity) {
-            bmRepo = ((BookListActivity) getActivity()).getBookmarksRepo();
-        }
-        if (bmRepo == null) return;
-        LocalProgressRepository progressRepo = (getActivity() instanceof BookListActivity)
-                ? ((BookListActivity) getActivity()).getProgressRepo()
-                : new LocalProgressRepository(requireContext());
+        // bmRepo 는 onViewCreated 에서 할당됨. 리스너/onResume 경로 모두 view 생성 후
+        // 만 호출되므로 여기선 이미 non-null. progressRepo 는 책 제목 파생용.
+        LocalProgressRepository progressRepo =
+                ((BookListActivity) requireActivity()).getProgressRepo();
 
         Map<String, List<Bookmark>> byHash = bmRepo.allAliveByHash();
         List<Item> items = new ArrayList<>();
@@ -136,7 +130,6 @@ public class MyBookmarksFragment extends Fragment implements BookListActivity.Th
                     "이 기기에 해당 책 파일이 없습니다", Toast.LENGTH_SHORT).show();
             return;
         }
-        if (!(requireActivity() instanceof BookListActivity)) return;
         ((BookListActivity) requireActivity())
                 .openBook(item.filePath, item.bookmark.charOffset, /*skipConflict*/ true);
     }
@@ -146,10 +139,6 @@ public class MyBookmarksFragment extends Fragment implements BookListActivity.Th
         menu.getMenuInflater().inflate(R.menu.menu_item_delete, menu.getMenu());
         menu.setOnMenuItemClickListener(mi -> {
             if (mi.getItemId() == R.id.action_delete) {
-                if (bmRepo == null && getActivity() instanceof BookListActivity) {
-                    bmRepo = ((BookListActivity) getActivity()).getBookmarksRepo();
-                }
-                if (bmRepo == null) return true;
                 boolean removed = bmRepo.deleteById(item.fileHash, item.bookmark.id);
                 if (removed) {
                     Toast.makeText(requireContext(),

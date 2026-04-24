@@ -50,11 +50,8 @@ public class BookListFragment extends Fragment implements BookListActivity.Theme
     public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
         // 호스트 Activity 의 공유 progressRepo — 리더의 save 가 즉시 보임.
-        if (requireActivity() instanceof BookListActivity) {
-            progressRepo = ((BookListActivity) requireActivity()).getProgressRepo();
-        } else {
-            progressRepo = new LocalProgressRepository(requireContext());
-        }
+        // 이 Fragment 는 BookListActivity 에만 호스트됨 — 아니면 ClassCastException 이 정답.
+        progressRepo = ((BookListActivity) requireActivity()).getProgressRepo();
         progressRepo.addChangedListener(onProgressChanged);
 
         recyclerView = view.findViewById(R.id.recycler_view);

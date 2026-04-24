@@ -667,10 +667,11 @@ public class ReaderFragment extends Fragment {
 
     @Override
     public void onDestroyView() {
-        super.onDestroyView();
+        // listener 해제는 super 보다 먼저 — super.onDestroyView 중 콜백이 뜨면 getView() null.
         if (bookmarksRepo != null) bookmarksRepo.removeChangedListener(bookmarksChangedListener);
         uiHideHandler.removeCallbacks(uiHideRunnable);
         if (tts != null) tts.shutdown();
+        super.onDestroyView();
     }
 
     @Override
