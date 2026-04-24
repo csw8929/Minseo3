@@ -52,6 +52,8 @@ public class SettingsBottomSheet extends BottomSheetDialogFragment {
     private boolean currentTapSwap;
     private View[] themeButtons;
     private Drawable selectedRing;
+    /** 글자 크기 슬라이더가 터치 드래그 중인지. onStartTrackingTouch / onStopTrackingTouch 로 토글. */
+    private boolean sizeSliderDragging = false;
 
     public static SettingsBottomSheet newInstance(float sizeSp, int textColor, int bgColor, boolean tapSwap) {
         SettingsBottomSheet f = new SettingsBottomSheet();
@@ -102,21 +104,20 @@ public class SettingsBottomSheet extends BottomSheetDialogFragment {
         // 드래그 중엔 listener.onSizePreview (싼 rescale only), release 시에만 onChanged (full paginate).
         // 큰 파일에서 드래그 한 번에 8단계를 휙휙 넘길 때 각 단계마다 paginate 가 돌면
         // 취소/재시작이 폭주해서 체감 여전히 느려짐 — commit-on-release 로 한 번만 돌게.
-        final boolean[] dragging = {false};
         seekSize.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override public void onProgressChanged(SeekBar sb, int progress, boolean fromUser) {
                 currentSizeSp = FONT_SIZES[progress];
                 tvSize.setText(String.valueOf((int) currentSizeSp));
-                if (dragging[0] && fromUser) {
+                if (sizeSliderDragging && fromUser) {
                     if (listener != null) listener.onSizePreview(currentSizeSp);
                 } else {
-                    // 프로그램적 초기 세팅이나 접근성 이벤트 등은 그대로 commit.
+                    // 접근성 등 non-touch 경로 (talkback ACTION_SET_PROGRESS 등) 는 바로 commit.
                     notifyListener();
                 }
             }
-            @Override public void onStartTrackingTouch(SeekBar sb) { dragging[0] = true; }
+            @Override public void onStartTrackingTouch(SeekBar sb) { sizeSliderDragging = true; }
             @Override public void onStopTrackingTouch(SeekBar sb) {
-                dragging[0] = false;
+                sizeSliderDragging = false;
                 notifyListener(); // 드래그 release — 최종 크기로 commit.
             }
         });
