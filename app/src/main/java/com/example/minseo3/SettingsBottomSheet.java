@@ -1,15 +1,19 @@
 package com.example.minseo3;
 
+import android.app.Dialog;
 import android.graphics.drawable.Drawable;
 import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.FrameLayout;
 import android.widget.SeekBar;
 import android.widget.TextView;
 
 import androidx.core.content.ContextCompat;
 
+import com.google.android.material.bottomsheet.BottomSheetBehavior;
+import com.google.android.material.bottomsheet.BottomSheetDialog;
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment;
 import com.google.android.material.materialswitch.MaterialSwitch;
 
@@ -55,6 +59,22 @@ public class SettingsBottomSheet extends BottomSheetDialogFragment {
     }
 
     public void setListener(Listener l) { this.listener = l; }
+
+    /** 가로 모드 / 작은 높이에서 bottom sheet 가 peek 상태로 뜨며 아래 내용이 잘리는
+     *  문제 — 시트 표시 직후 BottomSheetBehavior 를 EXPANDED 로 강제. 더불어 content
+     *  을 NestedScrollView 로 감싸 높이가 넘치면 스크롤 가능. */
+    @Override
+    public void onStart() {
+        super.onStart();
+        Dialog dialog = getDialog();
+        if (!(dialog instanceof BottomSheetDialog)) return;
+        FrameLayout sheet = ((BottomSheetDialog) dialog).findViewById(
+                com.google.android.material.R.id.design_bottom_sheet);
+        if (sheet == null) return;
+        BottomSheetBehavior<FrameLayout> behavior = BottomSheetBehavior.from(sheet);
+        behavior.setState(BottomSheetBehavior.STATE_EXPANDED);
+        behavior.setSkipCollapsed(true);
+    }
 
     @Override
     public View onCreateView(LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
