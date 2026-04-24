@@ -139,7 +139,9 @@ public class ReaderFragment extends Fragment {
         progressRepo = new LocalProgressRepository(requireContext());
         nasSyncManager = new NasSyncManager(requireContext());
         paginationCache = new PaginationCache(requireContext());
-        bookmarksRepo = new BookmarksRepository(requireContext());
+        // 호스트 Activity 의 공유 repo 사용 — 즐겨찾기 탭과 같은 인스턴스를 봐야
+        // 한쪽 mutation 이 다른 쪽 refresh 에 즉시 반영됨.
+        bookmarksRepo = ((BookListActivity) requireActivity()).getBookmarksRepo();
         bookmarksRepo.setOnChangedListener(bookmarksChangedListener);
 
         readerPrefs = requireContext().getSharedPreferences(PREFS_NAME, android.content.Context.MODE_PRIVATE);
@@ -578,6 +580,11 @@ public class ReaderFragment extends Fragment {
             } else {
                 pageView.setPage(pageRenderer.getPageText(text, currentPage), spToPx(textSizeSp), textColor, bgColor);
                 pageView.setColors(textColor, bgColor);
+            }
+            requireView().findViewById(R.id.reader_root).setBackgroundColor(bgColor);
+            // 호스트 Activity 에 테마 바뀐 사실 통지 — 내 책 / 즐겨찾기 페이지도 같은 bg.
+            if (requireActivity() instanceof BookListActivity) {
+                ((BookListActivity) requireActivity()).applyTheme();
             }
         });
         sheet.show(getChildFragmentManager(), "settings");

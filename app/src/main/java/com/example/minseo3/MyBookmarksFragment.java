@@ -31,11 +31,17 @@ import java.util.Map;
  * 책 제목은 {@link LocalProgressRepository} 에서 fileHash → filePath 를 조회해 파생.
  * 로컬에 파일이 없는 (다른 기기에서만 본) 책은 탭 시 토스트.
  */
-public class MyBookmarksFragment extends Fragment {
+public class MyBookmarksFragment extends Fragment implements BookListActivity.ThemedFragment {
 
     private Adapter adapter;
     private TextView tvEmpty;
     private BookmarksRepository bmRepo;
+
+    @Override public void applyTheme() {
+        View v = getView();
+        if (v != null) v.setBackgroundColor(ThemePrefs.bgColor(requireContext()));
+        if (adapter != null) adapter.notifyDataSetChanged();
+    }
 
     @Nullable @Override
     public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container,
@@ -52,6 +58,7 @@ public class MyBookmarksFragment extends Fragment {
         rv.addItemDecoration(new DividerItemDecoration(requireContext(), DividerItemDecoration.VERTICAL));
         adapter = new Adapter();
         rv.setAdapter(adapter);
+        applyTheme();
     }
 
     @Override
@@ -61,7 +68,12 @@ public class MyBookmarksFragment extends Fragment {
     }
 
     private void refresh() {
-        if (bmRepo == null) bmRepo = new BookmarksRepository(requireContext());
+        // 호스트 Activity 의 공유 repo 사용 — 리더에서 toggle 한 결과를 바로 봄.
+        if (getActivity() instanceof BookListActivity) {
+            bmRepo = ((BookListActivity) getActivity()).getBookmarksRepo();
+        } else if (bmRepo == null) {
+            bmRepo = new BookmarksRepository(requireContext());
+        }
         LocalProgressRepository progressRepo = new LocalProgressRepository(requireContext());
 
         Map<String, List<Bookmark>> byHash = bmRepo.allAliveByHash();
@@ -114,7 +126,10 @@ public class MyBookmarksFragment extends Fragment {
         menu.getMenuInflater().inflate(R.menu.menu_item_delete, menu.getMenu());
         menu.setOnMenuItemClickListener(mi -> {
             if (mi.getItemId() == R.id.action_delete) {
-                if (bmRepo == null) bmRepo = new BookmarksRepository(requireContext());
+                if (bmRepo == null && getActivity() instanceof BookListActivity) {
+                    bmRepo = ((BookListActivity) getActivity()).getBookmarksRepo();
+                }
+                if (bmRepo == null) return true;
                 boolean removed = bmRepo.deleteById(item.fileHash, item.bookmark.id);
                 if (removed) {
                     Toast.makeText(requireContext(),
@@ -183,6 +198,11 @@ public class MyBookmarksFragment extends Fragment {
             String timeStr = fmt.format(new Date(item.bookmark.createdAt));
             int pct = item.percentRead();
             h.tvCreated.setText(pct >= 0 ? timeStr + " (" + pct + "%)" : timeStr);
+
+            int textColor = ThemePrefs.textColor(h.itemView.getContext());
+            h.tvBook.setTextColor(textColor);
+            h.tvPreview.setTextColor(textColor);
+            h.tvCreated.setTextColor(textColor);
 
             float alpha = item.filePath != null ? 1f : 0.4f;
             h.tvBook.setAlpha(alpha);

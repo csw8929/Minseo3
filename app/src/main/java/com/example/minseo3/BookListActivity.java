@@ -55,6 +55,11 @@ public class BookListActivity extends AppCompatActivity {
     private int currentBookStartOffset;
     private boolean currentBookSkipConflict;
 
+    /** 앱 전체가 공유하는 북마크 저장소 — 리더와 즐겨찾기 탭이 같은 인스턴스를 봐야
+     *  한쪽 변경이 즉시 다른 쪽 refresh 에 반영됨. Repository 는 in-memory 캐시를
+     *  가지므로 인스턴스가 나뉘면 한쪽 mutation 이 다른 쪽에 보이지 않음. */
+    @Nullable private BookmarksRepository bookmarksRepo;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -119,6 +124,7 @@ public class BookListActivity extends AppCompatActivity {
 
         // 초기 상태 설정 (앱 기동 시 position 0 이므로 chrome 보임).
         applyChromeForPosition(viewPager.getCurrentItem());
+        applyTheme();
 
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override public void handleOnBackPressed() {
@@ -148,6 +154,31 @@ public class BookListActivity extends AppCompatActivity {
     @Nullable public String getCurrentBookPath() { return currentBookPath; }
     public int getCurrentBookStartOffset() { return currentBookStartOffset; }
     public boolean getCurrentBookSkipConflict() { return currentBookSkipConflict; }
+
+    /** Fragment 에서 공유 북마크 repo 를 받아감 — lazy 생성, 단일 인스턴스 보장. */
+    @NonNull public BookmarksRepository getBookmarksRepo() {
+        if (bookmarksRepo == null) bookmarksRepo = new BookmarksRepository(this);
+        return bookmarksRepo;
+    }
+
+    /**
+     * 리더에서 테마 (배경/글자색) 가 바뀌었을 때 자식 프래그먼트들이 루트를 다시 칠
+     * 하도록 트리거. Activity 자체 루트도 갱신. 자식은 onResume 타이밍에 ThemePrefs 를
+     * 다시 읽으면 충분하므로 여기선 활성 페이지 fragment 에만 invalidate 요청.
+     */
+    public void applyTheme() {
+        int bg = ThemePrefs.bgColor(this);
+        findViewById(R.id.root_layout).setBackgroundColor(bg);
+        // 활성 fragment 에게 테마 재적용 요청.
+        for (Fragment f : getSupportFragmentManager().getFragments()) {
+            if (f instanceof ThemedFragment) ((ThemedFragment) f).applyTheme();
+        }
+    }
+
+    /** 테마가 바뀌었을 때 자신의 루트를 다시 칠할 수 있는 Fragment 인터페이스. */
+    public interface ThemedFragment {
+        void applyTheme();
+    }
 
     /**
      * 책을 열고 리더 페이지로 이동. 모든 진입 경로 (내 책 탭 / 내 북마크 / 다른
