@@ -64,6 +64,11 @@ public class BookListActivity extends AppCompatActivity {
     @Nullable private String currentBookPath;
     private int currentBookStartOffset;
     private boolean currentBookSkipConflict;
+    /** openBook() 으로 진입한 직후 true. 회전 후 onCreate 복원 시엔 false 로 초기화
+     *  (savedInstanceState 에 저장 안 함) — 이를 통해 ReaderFragment 가 fresh
+     *  navigation 인지 회전 복원인지 구분, popup/list/bookmark 의 명시적 startOffset
+     *  과 회전 시점의 stale local 을 올바르게 분기. */
+    private boolean currentBookFreshOpen;
 
     private static final String STATE_BOOK_PATH = "state_book_path";
     private static final String STATE_BOOK_OFFSET = "state_book_offset";
@@ -211,6 +216,7 @@ public class BookListActivity extends AppCompatActivity {
     @Nullable public String getCurrentBookPath() { return currentBookPath; }
     public int getCurrentBookStartOffset() { return currentBookStartOffset; }
     public boolean getCurrentBookSkipConflict() { return currentBookSkipConflict; }
+    public boolean isCurrentBookFreshOpen() { return currentBookFreshOpen; }
 
     /** Fragment 에서 공유 북마크 repo 를 받아감 — lazy 생성, 단일 인스턴스 보장. */
     @NonNull public BookmarksRepository getBookmarksRepo() {
@@ -252,6 +258,7 @@ public class BookListActivity extends AppCompatActivity {
         this.currentBookPath = filePath;
         this.currentBookStartOffset = startOffset;
         this.currentBookSkipConflict = skipConflict;
+        this.currentBookFreshOpen = true;
         applyChromeForPosition(2);
         viewPager.setCurrentItem(2, true);
     }

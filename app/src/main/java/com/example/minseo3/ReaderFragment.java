@@ -211,11 +211,18 @@ public class ReaderFragment extends Fragment {
         hideEmptyState();
         filePath = path;
         fileHash = FileUtils.computeHash(file);
-        // rotation 복원 경로: onPause 에서 flushSaveNow 로 progressRepo 에 최신 offset
-        // 이 이미 저장됨. host.currentBookStartOffset 은 "최초 오픈 시점" 값이라
-        // 읽던 페이지와 다를 수 있으므로 progressRepo 우선.
+        // Fresh open (popup/list/bookmark/NasHistory) 은 호출자가 명시적으로 정한
+        // startOffset 을 신뢰. 회전 복원 시엔 host.currentBookStartOffset 이 "최초 오픈
+        // 시점" 값이라 stale 이므로, onPause→flushSaveNow 가 갱신해둔 progressRepo 가
+        // 최신 → 그쪽을 우선.
         LocalProgressRepository.Entry saved = progressRepo.get(fileHash);
-        int effectiveStartOffset = (saved != null) ? saved.charOffset : startOffset;
+        boolean freshOpen = host.isCurrentBookFreshOpen();
+        int effectiveStartOffset;
+        if (freshOpen) {
+            effectiveStartOffset = startOffset;
+        } else {
+            effectiveStartOffset = (saved != null) ? saved.charOffset : startOffset;
+        }
         skipConflictResolve = skipConflict;
         conflictResolved = false;
         loadedPath = path;
