@@ -4,6 +4,14 @@ All notable changes to this project are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versions use 4-digit `MAJOR.MINOR.PATCH.MICRO`.
 
+## [0.4.2.0] - 2026-04-26
+
+### Added
+- **볼륨 키로 페이지 이동.** 리더 화면 활성 + TTS 비활성 상태에서 VOLUME_UP=이전 페이지, VOLUME_DOWN=다음 페이지. TTS 재생 중엔 시스템에 위임돼 음량 조절로 동작. 다른 탭(내 책/즐겨찾기)에서도 시스템 기본 동작 유지. 길게 누름은 무시 (책 빠르게 넘어가는 방지) — 빠른 연속 press 는 기존 60ms debounce 가 자연 coalesce.
+
+### Fixed
+- **NAS 팝업 → 0% 시작 버그.** "다른 단말에서 X% 까지 읽었습니다" → "예" 선택 시, 탭에 stale local entry 가 있으면 명시적 NAS offset 이 무시되고 0% 부터 시작하던 회귀. `BookListActivity` 에 `currentBookFreshOpen` 플래그 추가 (회전 복원 vs fresh 진입 구분), `ReaderFragment.loadCurrentBookFromHost` 가 fresh open 시 host 의 startOffset 을 신뢰. 디버깅 기록은 `docs/2026-04-26-reader-fresh-open-offset-fix.md`.
+
 ## [0.4.1.0] - 2026-04-24
 
 ### Changed

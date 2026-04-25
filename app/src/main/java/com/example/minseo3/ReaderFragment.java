@@ -114,6 +114,10 @@ public class ReaderFragment extends Fragment {
     private TtsController tts;
     private boolean ttsActive = false;
 
+    /** BookListActivity 의 volume key handler 가 참조 — TTS 중이면 시스템 볼륨이
+     *  TTS 음량을 조절해야 하므로 인터셉트하지 않고 system 에 위임. */
+    boolean isTtsActive() { return ttsActive; }
+
     private boolean skipConflictResolve = false;
     private boolean conflictResolved = false;
 
@@ -211,11 +215,18 @@ public class ReaderFragment extends Fragment {
         hideEmptyState();
         filePath = path;
         fileHash = FileUtils.computeHash(file);
-        // rotation 복원 경로: onPause 에서 flushSaveNow 로 progressRepo 에 최신 offset
-        // 이 이미 저장됨. host.currentBookStartOffset 은 "최초 오픈 시점" 값이라
-        // 읽던 페이지와 다를 수 있으므로 progressRepo 우선.
+        // Fresh open (popup/list/bookmark/NasHistory) 은 호출자가 명시적으로 정한
+        // startOffset 을 신뢰. 회전 복원 시엔 host.currentBookStartOffset 이 "최초 오픈
+        // 시점" 값이라 stale 이므로, onPause→flushSaveNow 가 갱신해둔 progressRepo 가
+        // 최신 → 그쪽을 우선.
         LocalProgressRepository.Entry saved = progressRepo.get(fileHash);
-        int effectiveStartOffset = (saved != null) ? saved.charOffset : startOffset;
+        boolean freshOpen = host.isCurrentBookFreshOpen();
+        int effectiveStartOffset;
+        if (freshOpen) {
+            effectiveStartOffset = startOffset;
+        } else {
+            effectiveStartOffset = (saved != null) ? saved.charOffset : startOffset;
+        }
         skipConflictResolve = skipConflict;
         conflictResolved = false;
         loadedPath = path;
@@ -488,7 +499,10 @@ public class ReaderFragment extends Fragment {
         if (ttsActive) speakCurrentPage();
     };
 
-    private void requestPageMove(int delta) {
+    /** Volume key (BookListActivity.onKeyDown) / 탭 / TTS 자동 진행 모두 이 경로로
+     *  들어와 60ms debounce 로 coalesce. package-private — 같은 패키지의 Activity 가
+     *  외부 입력을 forward 할 때 사용. */
+    void requestPageMove(int delta) {
         if (!paginationReady) return;
         int max = pageRenderer.getPageCount();
         pendingPageDelta = Math.max(-max, Math.min(max, pendingPageDelta + delta));
