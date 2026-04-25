@@ -114,6 +114,10 @@ public class ReaderFragment extends Fragment {
     private TtsController tts;
     private boolean ttsActive = false;
 
+    /** BookListActivity 의 volume key handler 가 참조 — TTS 중이면 시스템 볼륨이
+     *  TTS 음량을 조절해야 하므로 인터셉트하지 않고 system 에 위임. */
+    boolean isTtsActive() { return ttsActive; }
+
     private boolean skipConflictResolve = false;
     private boolean conflictResolved = false;
 
@@ -495,7 +499,10 @@ public class ReaderFragment extends Fragment {
         if (ttsActive) speakCurrentPage();
     };
 
-    private void requestPageMove(int delta) {
+    /** Volume key (BookListActivity.onKeyDown) / 탭 / TTS 자동 진행 모두 이 경로로
+     *  들어와 60ms debounce 로 coalesce. package-private — 같은 패키지의 Activity 가
+     *  외부 입력을 forward 할 때 사용. */
+    void requestPageMove(int delta) {
         if (!paginationReady) return;
         int max = pageRenderer.getPageCount();
         pendingPageDelta = Math.max(-max, Math.min(max, pendingPageDelta + delta));

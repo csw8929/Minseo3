@@ -11,6 +11,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.provider.Settings;
 import android.util.Log;
+import android.view.KeyEvent;
 import android.view.View;
 import android.widget.Toast;
 
@@ -209,6 +210,49 @@ public class BookListActivity extends AppCompatActivity {
         if (viewPager != null) {
             outState.putInt(STATE_PAGER_POS, viewPager.getCurrentItem());
         }
+    }
+
+    // ── Volume key → 페이지 이동 ────────────────────────────────────────────
+    //
+    // 리더 탭 (currentItem=2) 활성 + TTS 비활성 일 때만 인터셉트.
+    // VOLUME_UP=이전, VOLUME_DOWN=다음 (물리 키 레이블 기준, tapSwap 무관).
+    // KEY_UP 도 consume 해야 시스템 볼륨 효과음/팝업 억제.
+    // TTS 중엔 시스템에 위임 — 사용자가 TTS 음량 조절 가능.
+
+    @Override
+    public boolean onKeyDown(int keyCode, @NonNull KeyEvent event) {
+        if (shouldInterceptVolumeForPaging(keyCode)) {
+            // 첫 press 만 페이지 이동. 길게 누름 (repeat) 은 무시 — 책 빠르게
+            // 넘어가지 않도록. 빠른 연속 press 는 requestPageMove 의 60ms debounce
+            // 가 자연 coalesce.
+            if (event.getRepeatCount() == 0) {
+                Fragment frag = getSupportFragmentManager().findFragmentByTag("f2");
+                if (frag instanceof ReaderFragment) {
+                    int delta = (keyCode == KeyEvent.KEYCODE_VOLUME_UP) ? -1 : +1;
+                    ((ReaderFragment) frag).requestPageMove(delta);
+                }
+            }
+            return true;
+        }
+        return super.onKeyDown(keyCode, event);
+    }
+
+    @Override
+    public boolean onKeyUp(int keyCode, @NonNull KeyEvent event) {
+        if (shouldInterceptVolumeForPaging(keyCode)) {
+            return true;
+        }
+        return super.onKeyUp(keyCode, event);
+    }
+
+    private boolean shouldInterceptVolumeForPaging(int keyCode) {
+        if (keyCode != KeyEvent.KEYCODE_VOLUME_UP && keyCode != KeyEvent.KEYCODE_VOLUME_DOWN) {
+            return false;
+        }
+        if (viewPager == null || viewPager.getCurrentItem() != 2) return false;
+        Fragment frag = getSupportFragmentManager().findFragmentByTag("f2");
+        if (!(frag instanceof ReaderFragment)) return false;
+        return !((ReaderFragment) frag).isTtsActive();
     }
 
     // ── Reader state accessors (ReaderFragment 가 사용) ─────────────────────
