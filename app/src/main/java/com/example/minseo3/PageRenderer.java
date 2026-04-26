@@ -1,5 +1,6 @@
 package com.example.minseo3;
 
+import android.graphics.Typeface;
 import android.text.Layout;
 import android.text.StaticLayout;
 import android.text.TextPaint;
@@ -29,7 +30,12 @@ public class PageRenderer {
      * @param heightPx    available height (view height minus vertical padding)
      */
     public List<Integer> paginate(String text, float textSizePx, int widthPx, int heightPx) {
-        return paginate(text, textSizePx, widthPx, heightPx, null, null);
+        return paginate(text, textSizePx, widthPx, heightPx, null, null, false);
+    }
+
+    public List<Integer> paginate(String text, float textSizePx, int widthPx, int heightPx,
+                                  AtomicBoolean cancelled, IntConsumer onProgress) {
+        return paginate(text, textSizePx, widthPx, heightPx, cancelled, onProgress, false);
     }
 
     /**
@@ -45,7 +51,7 @@ public class PageRenderer {
      *   getOffsetsArray 를 캐시하지 말 것.
      */
     public List<Integer> paginate(String text, float textSizePx, int widthPx, int heightPx,
-                                  AtomicBoolean cancelled, IntConsumer onProgress) {
+                                  AtomicBoolean cancelled, IntConsumer onProgress, boolean bold) {
         pageOffsets = new ArrayList<>();
         pageOffsets.add(0);
 
@@ -53,7 +59,7 @@ public class PageRenderer {
             return Collections.unmodifiableList(pageOffsets);
         }
 
-        StaticLayout layout = buildLayout(text, textSizePx, widthPx);
+        StaticLayout layout = buildLayout(text, textSizePx, widthPx, bold);
         float pageTopY = layout.getLineTop(0);
         final int lineCount = layout.getLineCount();
         int lastReportedPct = -1;
@@ -131,13 +137,13 @@ public class PageRenderer {
      * runs in the background.
      */
     public static CharSequence computeFirstPageText(String text, int startOffset,
-                                                    float textSizePx, int widthPx, int heightPx) {
+                                                    float textSizePx, int widthPx, int heightPx, boolean bold) {
         if (text == null || text.isEmpty() || startOffset >= text.length()
                 || widthPx <= 0 || heightPx <= 0) return "";
         int windowEnd = Math.min(text.length(), startOffset + 20_000);
         String window = text.substring(startOffset, windowEnd);
 
-        StaticLayout layout = buildLayout(window, textSizePx, widthPx);
+        StaticLayout layout = buildLayout(window, textSizePx, widthPx, bold);
         float pageTopY = layout.getLineTop(0);
         int endLineExclusive = layout.getLineCount();
         for (int line = 1; line < layout.getLineCount(); line++) {
@@ -152,10 +158,11 @@ public class PageRenderer {
         return window.substring(0, endInWindow);
     }
 
-    private static StaticLayout buildLayout(CharSequence text, float textSizePx, int widthPx) {
+    private static StaticLayout buildLayout(CharSequence text, float textSizePx, int widthPx, boolean bold) {
         TextPaint paint = new TextPaint();
         paint.setAntiAlias(true);
         paint.setTextSize(textSizePx);
+        if (bold) paint.setTypeface(Typeface.DEFAULT_BOLD);
         return StaticLayout.Builder
                 .obtain(text, 0, text.length(), paint, widthPx)
                 .setAlignment(Layout.Alignment.ALIGN_NORMAL)

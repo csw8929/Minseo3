@@ -2,6 +2,7 @@ package com.example.minseo3;
 
 import android.content.Context;
 import android.graphics.Canvas;
+import android.graphics.Typeface;
 import android.text.Layout;
 import android.text.StaticLayout;
 import android.text.TextPaint;
@@ -36,6 +37,12 @@ public class PageView extends View {
     public void setColors(int textColor, int bgColor) {
         this.backgroundColor = bgColor;
         textPaint.setColor(textColor);
+        rebuildLayout();
+        invalidate();
+    }
+
+    public void setBold(boolean bold) {
+        textPaint.setTypeface(bold ? Typeface.DEFAULT_BOLD : Typeface.DEFAULT);
         rebuildLayout();
         invalidate();
     }

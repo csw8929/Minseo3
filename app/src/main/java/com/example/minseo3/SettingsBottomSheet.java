@@ -20,7 +20,7 @@ import com.google.android.material.materialswitch.MaterialSwitch;
 public class SettingsBottomSheet extends BottomSheetDialogFragment {
 
     public interface Listener {
-        void onChanged(float textSizeSp, int textColor, int bgColor, boolean tapSwap);
+        void onChanged(float textSizeSp, int textColor, int bgColor, boolean tapSwap, boolean bold);
 
         /**
          * 글자 크기 슬라이더 드래그 중 실시간 프리뷰. 기본 구현은 no-op.
@@ -33,6 +33,7 @@ public class SettingsBottomSheet extends BottomSheetDialogFragment {
     private static final String ARG_TEXT_COLOR = "text_color";
     private static final String ARG_BG_COLOR = "bg_color";
     private static final String ARG_TAP_SWAP = "tap_swap";
+    private static final String ARG_BOLD = "bold";
 
     // Background themes: {bgColor, textColor}
     private static final int[][] THEMES = {
@@ -50,18 +51,20 @@ public class SettingsBottomSheet extends BottomSheetDialogFragment {
     private int currentTextColor;
     private int currentBgColor;
     private boolean currentTapSwap;
+    private boolean currentBold;
     private View[] themeButtons;
     private Drawable selectedRing;
     /** 글자 크기 슬라이더가 터치 드래그 중인지. onStartTrackingTouch / onStopTrackingTouch 로 토글. */
     private boolean sizeSliderDragging = false;
 
-    public static SettingsBottomSheet newInstance(float sizeSp, int textColor, int bgColor, boolean tapSwap) {
+    public static SettingsBottomSheet newInstance(float sizeSp, int textColor, int bgColor, boolean tapSwap, boolean bold) {
         SettingsBottomSheet f = new SettingsBottomSheet();
         Bundle args = new Bundle();
         args.putFloat(ARG_SIZE, sizeSp);
         args.putInt(ARG_TEXT_COLOR, textColor);
         args.putInt(ARG_BG_COLOR, bgColor);
         args.putBoolean(ARG_TAP_SWAP, tapSwap);
+        args.putBoolean(ARG_BOLD, bold);
         f.setArguments(args);
         return f;
     }
@@ -93,6 +96,7 @@ public class SettingsBottomSheet extends BottomSheetDialogFragment {
         currentTextColor = args != null ? args.getInt(ARG_TEXT_COLOR, 0xFF222222) : 0xFF222222;
         currentBgColor = args != null ? args.getInt(ARG_BG_COLOR, 0xFFFFFFFF) : 0xFFFFFFFF;
         currentTapSwap = args != null && args.getBoolean(ARG_TAP_SWAP, false);
+        currentBold = args != null && args.getBoolean(ARG_BOLD, false);
 
         // Font size seek bar
         SeekBar seekSize = v.findViewById(R.id.seek_font_size);
@@ -152,6 +156,16 @@ public class SettingsBottomSheet extends BottomSheetDialogFragment {
             });
         }
 
+        // Bold switch
+        MaterialSwitch switchBold = v.findViewById(R.id.switch_bold);
+        if (switchBold != null) {
+            switchBold.setChecked(currentBold);
+            switchBold.setOnCheckedChangeListener((btn, checked) -> {
+                currentBold = checked;
+                notifyListener();
+            });
+        }
+
         return v;
     }
 
@@ -166,7 +180,7 @@ public class SettingsBottomSheet extends BottomSheetDialogFragment {
     }
 
     private void notifyListener() {
-        if (listener != null) listener.onChanged(currentSizeSp, currentTextColor, currentBgColor, currentTapSwap);
+        if (listener != null) listener.onChanged(currentSizeSp, currentTextColor, currentBgColor, currentTapSwap, currentBold);
     }
 
     private int closestFontSizeIndex(float sp) {

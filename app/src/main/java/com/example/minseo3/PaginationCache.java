@@ -33,8 +33,8 @@ public class PaginationCache {
         if (!cacheDir.exists()) cacheDir.mkdirs();
     }
 
-    public int[] load(String fileHash, int sizeSp, int widthPx, int heightPx) {
-        File f = file(fileHash, sizeSp, widthPx, heightPx);
+    public int[] load(String fileHash, int sizeSp, int widthPx, int heightPx, boolean bold) {
+        File f = file(fileHash, sizeSp, widthPx, heightPx, bold);
         if (!f.exists()) return null;
         try (DataInputStream in = new DataInputStream(new FileInputStream(f))) {
             int version = in.readInt();
@@ -49,9 +49,9 @@ public class PaginationCache {
         }
     }
 
-    public void save(String fileHash, int sizeSp, int widthPx, int heightPx, int[] offsets) {
+    public void save(String fileHash, int sizeSp, int widthPx, int heightPx, boolean bold, int[] offsets) {
         try (DataOutputStream out = new DataOutputStream(
-                new FileOutputStream(file(fileHash, sizeSp, widthPx, heightPx)))) {
+                new FileOutputStream(file(fileHash, sizeSp, widthPx, heightPx, bold)))) {
             out.writeInt(CACHE_VERSION);
             out.writeInt(offsets.length);
             for (int o : offsets) out.writeInt(o);
@@ -68,7 +68,7 @@ public class PaginationCache {
         for (int i = 0; i < toDelete; i++) files[i].delete();
     }
 
-    private File file(String fileHash, int sizeSp, int widthPx, int heightPx) {
-        return new File(cacheDir, fileHash + "_" + sizeSp + "_" + widthPx + "x" + heightPx + ".bin");
+    private File file(String fileHash, int sizeSp, int widthPx, int heightPx, boolean bold) {
+        return new File(cacheDir, fileHash + "_" + sizeSp + "_" + widthPx + "x" + heightPx + "_b" + (bold ? 1 : 0) + ".bin");
     }
 }
