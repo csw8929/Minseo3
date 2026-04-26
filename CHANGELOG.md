@@ -4,6 +4,11 @@ All notable changes to this project are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versions use 4-digit `MAJOR.MINOR.PATCH.MICRO`.
 
+## [0.4.3.0] - 2026-04-26
+
+### Added
+- **굵은 글씨체 토글.** 설정 화면 글자 크기 슬라이더 바로 아래에 "굵은 글씨체" 스위치 추가. 켜면 `Typeface.DEFAULT_BOLD` 가 적용되어 뷰어 본문이 굵게 표시됨. 설정 값은 `reader_prefs` 에 영구 저장. 켜기/끄기 시 글자 크기 변경과 동일하게 전체 페이지 재계산 (bold 글자는 너비가 달라 페이지 경계가 바뀜). PaginationCache 파일명에 `_b0`/`_b1` suffix 를 추가해 bold/non-bold 캐시를 분리.
+
 ## [0.4.2.0] - 2026-04-26
 
 ### Added

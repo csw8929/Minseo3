@@ -75,6 +75,7 @@ public class ReaderFragment extends Fragment {
     private static final String PREF_TEXT_COLOR   = "text_color";
     private static final String PREF_BG_COLOR     = "bg_color";
     private static final String PREF_TAP_SWAP     = "tap_swap";
+    private static final String PREF_BOLD         = "bold_text";
 
     private SharedPreferences readerPrefs;
     private float textSizeSp = 17f;
@@ -82,6 +83,7 @@ public class ReaderFragment extends Fragment {
     private int bgColor = 0xFFFFFFFF;
     /** true 면 왼쪽 탭 = 다음 페이지, 오른쪽 탭 = 이전 페이지 (좌/우 기능 스왑). */
     private boolean tapSwap = false;
+    private boolean bold = false;
 
     // ── Engine
     private final PageRenderer pageRenderer = new PageRenderer();
@@ -160,9 +162,11 @@ public class ReaderFragment extends Fragment {
         textColor  = readerPrefs.getInt(PREF_TEXT_COLOR, textColor);
         bgColor    = readerPrefs.getInt(PREF_BG_COLOR, bgColor);
         tapSwap    = readerPrefs.getBoolean(PREF_TAP_SWAP, false);
+        bold       = readerPrefs.getBoolean(PREF_BOLD, false);
 
         view.findViewById(R.id.reader_root).setBackgroundColor(bgColor);
         pageView.setColors(textColor, bgColor);
+        pageView.setBold(bold);
 
         tts = new TtsController(requireContext(), new TtsController.Listener() {
             @Override public void onReady() {}
@@ -303,7 +307,7 @@ public class ReaderFragment extends Fragment {
         paginateCancelled = myCancelled;
 
         executor.execute(() -> {
-            int[] cached = paginationCache.load(fileHash, sizeSpInt, w, h);
+            int[] cached = paginationCache.load(fileHash, sizeSpInt, w, h, bold);
             if (cached != null && cached.length > 0) {
                 pageRenderer.setOffsets(cached);
                 int page = pageRenderer.offsetToPage(startOffset);
@@ -322,7 +326,7 @@ public class ReaderFragment extends Fragment {
             if (myCancelled.get()) return;
 
             CharSequence firstPage = PageRenderer.computeFirstPageText(
-                    text, startOffset, textSizePx, w, h);
+                    text, startOffset, textSizePx, w, h, bold);
             mainHandler.post(() -> {
                 if (myGen != paginateGeneration) return;
                 showLoading(false);
@@ -338,13 +342,13 @@ public class ReaderFragment extends Fragment {
                     if (myCancelled.get()) return;
                     tvStatusLeft.setText("페이지 계산 중 " + pct + "%");
                 });
-            });
+            }, bold);
 
             // 취소됐다면 pageOffsets 가 비어있으므로 cache save / displayPage 모두 스킵.
             if (myCancelled.get()) return;
 
             int[] offsets = pageRenderer.getOffsetsArray();
-            paginationCache.save(fileHash, sizeSpInt, w, h, offsets);
+            paginationCache.save(fileHash, sizeSpInt, w, h, bold, offsets);
             int page = pageRenderer.offsetToPage(startOffset);
             mainHandler.post(() -> {
                 if (myGen != paginateGeneration) return;
@@ -613,7 +617,7 @@ public class ReaderFragment extends Fragment {
     // ── Settings ─────────────────────────────────────────────────────────────
 
     private void showSettings() {
-        SettingsBottomSheet sheet = SettingsBottomSheet.newInstance(textSizeSp, textColor, bgColor, tapSwap);
+        SettingsBottomSheet sheet = SettingsBottomSheet.newInstance(textSizeSp, textColor, bgColor, tapSwap, bold);
         sheet.setListener(new SettingsBottomSheet.Listener() {
             @Override public void onSizePreview(float newSizeSp) {
                 // 드래그 중 싼 프리뷰 — 현재 페이지 텍스트를 새 크기로 리드로우만 한다.
@@ -622,19 +626,23 @@ public class ReaderFragment extends Fragment {
                 pageView.setTextSizePx(spToPx(newSizeSp));
             }
 
-            @Override public void onChanged(float newSizeSp, int newTextColor, int newBgColor, boolean newTapSwap) {
+            @Override public void onChanged(float newSizeSp, int newTextColor, int newBgColor, boolean newTapSwap, boolean newBold) {
                 boolean sizeChanged = newSizeSp != textSizeSp;
+                boolean boldChanged = newBold != bold;
                 textSizeSp = newSizeSp;
                 textColor = newTextColor;
                 bgColor = newBgColor;
                 tapSwap = newTapSwap;
+                bold = newBold;
                 readerPrefs.edit()
                         .putFloat(PREF_TEXT_SIZE_SP, textSizeSp)
                         .putInt(PREF_TEXT_COLOR, textColor)
                         .putInt(PREF_BG_COLOR, bgColor)
                         .putBoolean(PREF_TAP_SWAP, tapSwap)
+                        .putBoolean(PREF_BOLD, bold)
                         .apply();
-                if (sizeChanged) {
+                pageView.setBold(bold);
+                if (sizeChanged || boldChanged) {
                     showLoading(true);
                     pageView.post(() -> paginate(lastKnownOffset));
                 } else {
