@@ -4,6 +4,11 @@ All notable changes to this project are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versions use 4-digit `MAJOR.MINOR.PATCH.MICRO`.
 
+## [0.4.4.0] - 2026-04-28
+
+### Changed
+- **콜드 오픈 첫 페이지 빠르게.** 느린 단말에서 3MB .txt 책 처음 열 때 첫 페이지 표시까지 10초+ 기다리던 체감 해소. `decodeAuto` 가 strict UTF-8 검증 + 결과 디코드를 따로 돌리던 사실상 더블 디코드 패턴을 `CharsetDecoder.decode` 단일 패스로 통합. `loadFile` 은 두 단계로 분리 — Phase 1 에서 byte 0 ~ `max(128KB, startByte 추정 + 64KB)` 만 읽어 partial paginate → 첫 페이지 즉시 표시, Phase 2 에서 백그라운드로 풀 read + decode + paginate 후 boundaries atomic swap. 사용자의 현재 페이지는 char offset 기준으로 재매핑해 풀 paginate 완료 후에도 그대로 유지. partial 모드 동안 설정 변경 시 풀 흐름 재시작. 자세한 내용은 `docs/2026-04-28-reader-cold-open-fast-first-page.md`.
+
 ## [0.4.3.0] - 2026-04-26
 
 ### Added
