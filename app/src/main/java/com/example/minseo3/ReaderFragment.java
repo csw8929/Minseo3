@@ -101,6 +101,10 @@ public class ReaderFragment extends Fragment {
     private int lastKnownOffset = 0;
     private int paginateGeneration = 0;
 
+    /** true 면 현재 {@code text} 가 prefix-only — 풀 텍스트 로딩이 아직 진행 중.
+     *  설정 변경 시 이 플래그가 켜져있으면 in-memory paginate 가 아니라 loadFile 재실행. */
+    private boolean partialMode = false;
+
     /** 현재 진행 중인 full paginate 의 취소 토큰. 새 paginate 시작 시 이전 것을 true 로 set. */
     private java.util.concurrent.atomic.AtomicBoolean paginateCancelled =
             new java.util.concurrent.atomic.AtomicBoolean(false);
@@ -269,17 +273,151 @@ public class ReaderFragment extends Fragment {
 
     // ── File loading + pagination ────────────────────────────────────────────
 
+    /**
+     * 두 단계 로드.
+     *
+     * Phase 1 (prefix): 시작 오프셋 주변까지만 byte 를 읽어 디코드 → 부분 paginate →
+     * 첫 페이지 즉시 표시. char offset 시스템과의 호환성 때문에 byte 0 부터 읽되
+     * 끝 byte 는 {@code startByte_estimate + 64KB} 까지 (사용자가 앞뒤 페이지 이동
+     * 가능하도록).
+     *
+     * Phase 2 (full): 백그라운드로 풀 read + decode → 캐시 또는 풀 paginate →
+     * 메인스레드에서 pageRenderer.setOffsets + text 교체. 사용자의 currentPage 는
+     * char offset 으로 다시 매핑.
+     */
     private void loadFile(File file, int startOffset) {
+        // pageView.post — pageView 가 layout 된 후에 width/height 측정. onResume 시점엔
+        // 아직 0 일 수 있어서 한 프레임 기다림.
+        pageView.post(() -> startLoadFlow(file, startOffset));
+    }
+
+    private void startLoadFlow(File file, int startOffset) {
+        final int w = pageView.getWidth() - pageView.getPaddingLeft() - pageView.getPaddingRight();
+        final int h = pageView.getHeight() - pageView.getPaddingTop() - pageView.getPaddingBottom();
+        if (w <= 0 || h <= 0) {
+            // 아직 layout 전. 한 번 더 대기.
+            pageView.post(() -> startLoadFlow(file, startOffset));
+            return;
+        }
+
         showLoading(true);
+
+        final float textSizePx = spToPx(textSizeSp);
+        final int sizeSpInt = (int) textSizeSp;
+        final boolean boldNow = bold;
+
+        final int myGen = ++paginateGeneration;
+        // 진행 중인 다른 paginate/loadFile 취소.
+        paginateCancelled.set(true);
+        final java.util.concurrent.atomic.AtomicBoolean myCancelled =
+                new java.util.concurrent.atomic.AtomicBoolean(false);
+        paginateCancelled = myCancelled;
+
+        lastKnownOffset = startOffset;
+        paginationReady = false;
+        seekBar.setEnabled(false);
+
         executor.execute(() -> {
             try {
-                String loaded = FileUtils.readTextFile(file);
+                // ── Phase 1: prefix read + decode + partial paginate ───────────
+                long fileLen = file.length();
+                // UTF-8 한글 보수적으로 byte ≈ char × 4. CP949 는 char × 2 라 과대추정 측이 안전.
+                long startByteEst = (long) startOffset * 4L;
+                long prefixTarget = Math.min(fileLen,
+                        Math.max(128L * 1024L, startByteEst + 64L * 1024L));
+
+                byte[] prefixBytes = FileUtils.readBytePrefix(file, prefixTarget);
+                String partialText = FileUtils.decodeAutoPartial(prefixBytes);
+                boolean isFull = (prefixBytes.length >= fileLen);
+
+                // 추정이 어긋나 startOffset 까지 못 갔으면 256KB 씩 늘려가며 재시도.
+                while (!isFull && partialText.length() < startOffset) {
+                    long newLen = Math.min(fileLen, prefixBytes.length + 256L * 1024L);
+                    if (newLen <= prefixBytes.length) break;
+                    prefixBytes = FileUtils.readBytePrefix(file, newLen);
+                    partialText = FileUtils.decodeAutoPartial(prefixBytes);
+                    isFull = (prefixBytes.length >= fileLen);
+                }
+
+                if (myCancelled.get()) return;
+
+                // partial paginate — 같은 pageRenderer 사용. 이후 풀 paginate 는 별도
+                // PageRenderer 인스턴스로 돌려서 race 회피.
+                pageRenderer.paginate(partialText, textSizePx, w, h, myCancelled, null, boldNow);
+                if (myCancelled.get()) return;
+
+                final int firstPage = pageRenderer.offsetToPage(startOffset);
+                final String tPartial = partialText;
+                final boolean tIsFull = isFull;
                 mainHandler.post(() -> {
-                    text = loaded;
-                    pageView.post(() -> paginate(startOffset));
+                    if (myGen != paginateGeneration) return;
+                    text = tPartial;
+                    partialMode = !tIsFull;
+                    showLoading(false);
+                    if (tIsFull) {
+                        seekBar.setMax(Math.max(1, pageRenderer.getPageCount() - 1));
+                        seekBar.setEnabled(true);
+                    } else {
+                        // partial — 페이지 수가 아직 미정. seekbar 비활성, "계산 중" 표시.
+                        seekBar.setEnabled(false);
+                        tvStatusLeft.setText("페이지 계산 중 0%");
+                    }
+                    paginationReady = true;
+                    displayPage(firstPage);
+                });
+
+                if (tIsFull) {
+                    // 작은 파일 — partial 이 곧 full. 캐시 저장 + NAS 로 끝.
+                    paginationCache.save(fileHash, sizeSpInt, w, h, boldNow,
+                            pageRenderer.getOffsetsArray());
+                    mainHandler.post(() -> {
+                        if (myGen != paginateGeneration) return;
+                        maybeResolveNasConflict();
+                        maybePullBookmarks();
+                    });
+                    return;
+                }
+
+                // ── Phase 2: full read + decode + (cache 또는 paginate) ─────────
+                byte[] fullBytes = FileUtils.readAllBytes(file);
+                String fullText = FileUtils.decodeAuto(fullBytes);
+                if (myCancelled.get()) return;
+
+                int[] cached = paginationCache.load(fileHash, sizeSpInt, w, h, boldNow);
+                final int[] fullOffsets;
+                if (cached != null && cached.length > 0) {
+                    fullOffsets = cached;
+                } else {
+                    PageRenderer fullRenderer = new PageRenderer();
+                    fullRenderer.paginate(fullText, textSizePx, w, h, myCancelled, pct -> {
+                        mainHandler.post(() -> {
+                            if (myGen != paginateGeneration || myCancelled.get()) return;
+                            tvStatusLeft.setText("페이지 계산 중 " + pct + "%");
+                        });
+                    }, boldNow);
+                    if (myCancelled.get()) return;
+                    fullOffsets = fullRenderer.getOffsetsArray();
+                    paginationCache.save(fileHash, sizeSpInt, w, h, boldNow, fullOffsets);
+                }
+
+                final String tFull = fullText;
+                mainHandler.post(() -> {
+                    if (myGen != paginateGeneration) return;
+                    // 사용자의 현재 char offset 을 보존하고, 풀 offsets 로 교체한 뒤 재매핑.
+                    int currentCharOffset = pageRenderer.getPageStartOffset(currentPage);
+                    pageRenderer.setOffsets(fullOffsets);
+                    text = tFull;
+                    partialMode = false;
+                    int newPage = pageRenderer.offsetToPage(currentCharOffset);
+                    seekBar.setMax(Math.max(1, pageRenderer.getPageCount() - 1));
+                    seekBar.setEnabled(true);
+                    displayPage(newPage);
+                    maybeResolveNasConflict();
+                    maybePullBookmarks();
                 });
             } catch (Exception e) {
                 mainHandler.post(() -> {
+                    if (myGen != paginateGeneration) return;
                     showLoading(false);
                     Toast.makeText(requireContext(),
                             "파일을 읽을 수 없습니다: " + e.getMessage(), Toast.LENGTH_LONG).show();
@@ -644,7 +782,13 @@ public class ReaderFragment extends Fragment {
                 pageView.setBold(bold);
                 if (sizeChanged || boldChanged) {
                     showLoading(true);
-                    pageView.post(() -> paginate(lastKnownOffset));
+                    if (partialMode) {
+                        // 풀 텍스트가 아직 로드 중. paginate(in-memory) 로는 partial 만 처리되니
+                        // loadFile 을 다시 호출해서 partial→full 흐름 전체 재시작.
+                        loadFile(new File(filePath), lastKnownOffset);
+                    } else {
+                        pageView.post(() -> paginate(lastKnownOffset));
+                    }
                 } else {
                     pageView.setPage(pageRenderer.getPageText(text, currentPage), spToPx(textSizeSp), textColor, bgColor);
                     pageView.setColors(textColor, bgColor);
