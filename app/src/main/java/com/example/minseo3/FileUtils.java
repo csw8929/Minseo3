@@ -6,6 +6,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.InputStream;
+import java.io.RandomAccessFile;
 import java.nio.charset.Charset;
 import java.nio.charset.CharsetDecoder;
 import java.nio.charset.CodingErrorAction;
@@ -67,7 +68,7 @@ public class FileUtils {
         return decodeAuto(bytes);
     }
 
-    private static byte[] readAllBytes(File file) throws Exception {
+    static byte[] readAllBytes(File file) throws Exception {
         try (InputStream in = new FileInputStream(file)) {
             ByteArrayOutputStream out = new ByteArrayOutputStream(
                     (int) Math.min(file.length(), Integer.MAX_VALUE));
@@ -78,7 +79,24 @@ public class FileUtils {
         }
     }
 
-    /** 바이트 → String. BOM 우선, 없으면 UTF-8 시도 후 실패 시 CP949. */
+    /** 파일의 앞 {@code len} 바이트만 읽음 (파일이 더 작으면 그만큼). */
+    public static byte[] readBytePrefix(File file, long len) throws Exception {
+        long actualLen = Math.min(len, file.length());
+        if (actualLen <= 0) return new byte[0];
+        if (actualLen > Integer.MAX_VALUE) actualLen = Integer.MAX_VALUE;
+        try (RandomAccessFile raf = new RandomAccessFile(file, "r")) {
+            byte[] buf = new byte[(int) actualLen];
+            raf.readFully(buf);
+            return buf;
+        }
+    }
+
+    /**
+     * 바이트 → String. BOM 우선, 없으면 UTF-8 단일 패스 시도 후 실패 시 CP949.
+     *
+     * 이전엔 UTF-8 검증을 위해 전체를 한번 디코드 → 결과 버리고 다시 한번 디코드 했지만,
+     * 큰 파일에서 그 비용이 무시 못 되어 단일 패스로 통합. 디코드 결과를 그대로 반환.
+     */
     static String decodeAuto(byte[] bytes) {
         // UTF-8 BOM
         if (bytes.length >= 3
@@ -99,11 +117,15 @@ public class FileUtils {
                 && (bytes[1] & 0xFF) == 0xFE) {
             return new String(bytes, 2, bytes.length - 2, StandardCharsets.UTF_16LE);
         }
-        // Strict UTF-8 시도
-        if (isValidUtf8(bytes)) {
-            return new String(bytes, StandardCharsets.UTF_8);
+        // Strict UTF-8 단일 패스 — 성공하면 결과 그대로 반환.
+        try {
+            CharsetDecoder decoder = StandardCharsets.UTF_8.newDecoder()
+                    .onMalformedInput(CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(CodingErrorAction.REPORT);
+            return decoder.decode(ByteBuffer.wrap(bytes)).toString();
+        } catch (Exception ignored) {
+            // 한국 .txt 폴백으로
         }
-        // 한국 .txt 폴백
         try {
             return new String(bytes, Charset.forName("x-windows-949"));
         } catch (Exception e) {
@@ -116,16 +138,40 @@ public class FileUtils {
         }
     }
 
-    private static boolean isValidUtf8(byte[] bytes) {
-        CharsetDecoder decoder = StandardCharsets.UTF_8.newDecoder()
-                .onMalformedInput(CodingErrorAction.REPORT)
-                .onUnmappableCharacter(CodingErrorAction.REPORT);
-        try {
-            decoder.decode(ByteBuffer.wrap(bytes));
-            return true;
-        } catch (Exception e) {
-            return false;
+    /**
+     * Prefix 디코드용. 파일의 앞부분만 잘라온 바이트는 끝에서 UTF-8 multi-byte 시퀀스가
+     * 잘려있을 수 있으므로, 안전하게 끝의 미완성 시퀀스를 trim 한 뒤 {@link #decodeAuto}.
+     *
+     * Trim 은 최대 3 바이트 (UTF-8 4-byte 인코딩의 lead 직전까지). CP949 파일이라도
+     * 끝 0~1 바이트 손실 정도라 첫 페이지 표시엔 영향 없음.
+     */
+    public static String decodeAutoPartial(byte[] bytes) {
+        if (bytes == null || bytes.length == 0) return "";
+        int safeLen = trimIncompleteUtf8Tail(bytes, bytes.length);
+        if (safeLen == bytes.length) return decodeAuto(bytes);
+        byte[] trimmed = new byte[safeLen];
+        System.arraycopy(bytes, 0, trimmed, 0, safeLen);
+        return decodeAuto(trimmed);
+    }
+
+    /** UTF-8 multi-byte 가 끝에서 잘린 경우, 마지막 lead byte 직전까지 자른 길이를 반환. */
+    private static int trimIncompleteUtf8Tail(byte[] bytes, int len) {
+        if (len == 0) return 0;
+        int i = len - 1;
+        int continuations = 0;
+        while (i >= 0 && (bytes[i] & 0xC0) == 0x80 && continuations < 3) {
+            continuations++;
+            i--;
         }
+        if (i < 0) return len;
+        int lead = bytes[i] & 0xFF;
+        int needed;
+        if ((lead & 0x80) == 0) needed = 0;          // ASCII
+        else if ((lead & 0xE0) == 0xC0) needed = 1;  // 2-byte
+        else if ((lead & 0xF0) == 0xE0) needed = 2;  // 3-byte
+        else if ((lead & 0xF8) == 0xF0) needed = 3;  // 4-byte
+        else return len;                             // lead 가 아님 (CP949 등) — 그대로
+        return continuations >= needed ? len : i;
     }
 
     /**
