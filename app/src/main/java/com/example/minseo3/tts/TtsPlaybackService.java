@@ -69,6 +69,8 @@ public class TtsPlaybackService extends Service {
     private int lastSpokenPage = -1;
     private int state = STATE_IDLE;
     private float speechRate = 1.0f;
+    /** speakCurrentPage 호출마다 증가. utteranceId 에 인코딩되어 옛 utterance 의 stale onDone 차단. */
+    private int currentSpeakGeneration = 0;
     @Nullable private String initialEngine;
 
     // ── Phase 2 추가 ──────────────────────────────────────────────────────────
@@ -206,7 +208,12 @@ public class TtsPlaybackService extends Service {
 
     public void setSpeechRate(float rate) {
         this.speechRate = rate;
-        if (tts != null) tts.setSpeechRate(rate);
+        if (tts == null) return;
+        tts.setSpeechRate(rate);
+        // 즉시 반영 — Android TTS 의 setSpeechRate 는 다음 speak() 호출부터 적용. 현재 발화는
+        // 옛 속도로 끝까지 가서 사용자가 "한참 후에 반영" 으로 체감. 재생 중이면 같은 페이지를
+        // 새 속도로 다시 발화 (QUEUE_FLUSH 가 옛 utterance 즉시 중단).
+        if (state == STATE_PLAYING) speakCurrentPage();
     }
 
     /**
@@ -444,21 +451,31 @@ public class TtsPlaybackService extends Service {
         String pageText = queue.getPageText(page);
         if (pageText.isEmpty()) return;
         lastSpokenPage = page;
+        int gen = ++currentSpeakGeneration;
         Bundle params = new Bundle();
         params.putString(TextToSpeech.Engine.KEY_PARAM_STREAM,
                 String.valueOf(AudioManager.STREAM_MUSIC));
-        tts.speak(pageText, TextToSpeech.QUEUE_FLUSH, params, UTTERANCE_PREFIX + page);
+        // utteranceId = "page-N-gK" — N=페이지, K=generation. 같은 페이지 재발화 시 (속도 변경 등)
+        // K 가 증가해 옛 utterance 의 stale onDone 을 식별 후 무시.
+        tts.speak(pageText, TextToSpeech.QUEUE_FLUSH, params,
+                UTTERANCE_PREFIX + page + "-g" + gen);
     }
 
     /** TTS 스레드에서 호출됨. */
     private void handleUtteranceDone(String utteranceId) {
         if (utteranceId == null || !utteranceId.startsWith(UTTERANCE_PREFIX)) return;
+        String body = utteranceId.substring(UTTERANCE_PREFIX.length());
+        int dashG = body.indexOf("-g");
+        if (dashG < 0) return;
         int spoken;
+        int gen;
         try {
-            spoken = Integer.parseInt(utteranceId.substring(UTTERANCE_PREFIX.length()));
+            spoken = Integer.parseInt(body.substring(0, dashG));
+            gen = Integer.parseInt(body.substring(dashG + 2));
         } catch (NumberFormatException e) {
             return;
         }
+        if (gen != currentSpeakGeneration) return;  // 재발화로 superseded — 옛 utterance.
         if (spoken != lastSpokenPage) return;
         if (state != STATE_PLAYING) return;
 

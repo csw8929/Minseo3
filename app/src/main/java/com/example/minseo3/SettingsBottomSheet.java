@@ -72,6 +72,8 @@ public class SettingsBottomSheet extends BottomSheetDialogFragment {
     private Drawable selectedRing;
     /** 글자 크기 슬라이더가 터치 드래그 중인지. onStartTrackingTouch / onStopTrackingTouch 로 토글. */
     private boolean sizeSliderDragging = false;
+    /** TTS 속도 슬라이더 드래그 중인지. 매 notch 마다 재발화 폭주 방지 — release 시점에만 commit. */
+    private boolean rateSliderDragging = false;
 
     public static SettingsBottomSheet newInstance(float sizeSp, int textColor, int bgColor,
                                                   boolean tapSwap, boolean bold, float ttsRate) {
@@ -185,7 +187,8 @@ public class SettingsBottomSheet extends BottomSheetDialogFragment {
             });
         }
 
-        // TTS 속도 — 즉시 적용 (다음 페이지 발화부터 새 속도). 큰 비용 없음.
+        // TTS 속도 — release 시점에만 commit. 드래그 중 매 notch 마다 service 재발화하면 음성이
+        // 0.1x 단계로 끊겨 들림. 비-터치 (a11y SET_PROGRESS) 는 즉시 commit.
         SeekBar seekRate = v.findViewById(R.id.seek_tts_rate);
         TextView tvRate = v.findViewById(R.id.tv_tts_rate);
         if (seekRate != null && tvRate != null) {
@@ -197,10 +200,18 @@ public class SettingsBottomSheet extends BottomSheetDialogFragment {
                 @Override public void onProgressChanged(SeekBar sb, int progress, boolean fromUser) {
                     currentTtsRate = progressToTtsRate(progress);
                     tvRate.setText(formatRate(currentTtsRate));
-                    if (fromUser && listener != null) listener.onTtsRateChanged(currentTtsRate);
+                    if (rateSliderDragging && fromUser) {
+                        // 드래그 중 — 화면 표시만 갱신.
+                    } else if (listener != null) {
+                        // 비-터치 (a11y) — 즉시 commit.
+                        listener.onTtsRateChanged(currentTtsRate);
+                    }
                 }
-                @Override public void onStartTrackingTouch(SeekBar sb) {}
-                @Override public void onStopTrackingTouch(SeekBar sb) {}
+                @Override public void onStartTrackingTouch(SeekBar sb) { rateSliderDragging = true; }
+                @Override public void onStopTrackingTouch(SeekBar sb) {
+                    rateSliderDragging = false;
+                    if (listener != null) listener.onTtsRateChanged(currentTtsRate);
+                }
             });
         }
 
