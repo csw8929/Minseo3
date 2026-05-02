@@ -164,6 +164,76 @@
         android:textSize="12sp"
         android:textColor="?android:attr/textColorSecondary" />
 
+    <!-- ── TTS 음성 ──────────────────────────────────────────────────── -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:layout_marginTop="22dp"
+        android:layout_marginBottom="18dp"
+        android:background="?android:attr/textColorPrimary"
+        android:alpha="0.12" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="읽기 속도"
+        android:textStyle="bold"
+        android:textSize="15sp"
+        android:layout_marginBottom="8dp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginBottom="14dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="느리게"
+            android:textSize="12sp"
+            android:layout_marginEnd="8dp" />
+
+        <SeekBar
+            android:id="@+id/seek_tts_rate"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="빠르게"
+            android:textSize="12sp"
+            android:layout_marginStart="8dp" />
+
+        <TextView
+            android:id="@+id/tv_tts_rate"
+            android:layout_width="44dp"
+            android:layout_height="wrap_content"
+            android:text="1.0x"
+            android:textSize="13sp"
+            android:gravity="end"
+            android:layout_marginStart="8dp" />
+    </LinearLayout>
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btn_tts_engine_settings"
+        style="@style/Widget.Material3.Button.OutlinedButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="음성 엔진 변경"
+        android:layout_marginTop="2dp" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:text="시스템 설정에서 더 좋은 한국어 TTS 엔진(Samsung / Google / Naver 등)을 설치·선택할 수 있습니다."
+        android:textSize="12sp"
+        android:textColor="?android:attr/textColorSecondary" />
+
 
 </LinearLayout>
 </androidx.core.widget.NestedScrollView>

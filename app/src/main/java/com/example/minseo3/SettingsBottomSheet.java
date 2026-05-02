@@ -6,6 +6,7 @@ import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.SeekBar;
 import android.widget.TextView;
@@ -17,6 +18,8 @@ import com.google.android.material.bottomsheet.BottomSheetDialog;
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment;
 import com.google.android.material.materialswitch.MaterialSwitch;
 
+import java.util.Locale;
+
 public class SettingsBottomSheet extends BottomSheetDialogFragment {
 
     public interface Listener {
@@ -27,6 +30,12 @@ public class SettingsBottomSheet extends BottomSheetDialogFragment {
          * 드래그 release 시점에만 {@link #onChanged} 가 한 번 호출되어 full paginate.
          */
         default void onSizePreview(float textSizeSp) {}
+
+        /** TTS 읽기 속도 변경 (즉시 적용). */
+        default void onTtsRateChanged(float rate) {}
+
+        /** "음성 엔진 변경" 버튼 — 시스템 TTS 설정 화면 열기. */
+        default void onOpenTtsEngineSettings() {}
     }
 
     private static final String ARG_SIZE = "size";
@@ -34,6 +43,12 @@ public class SettingsBottomSheet extends BottomSheetDialogFragment {
     private static final String ARG_BG_COLOR = "bg_color";
     private static final String ARG_TAP_SWAP = "tap_swap";
     private static final String ARG_BOLD = "bold";
+    private static final String ARG_TTS_RATE = "tts_rate";
+
+    /** TTS 속도 매핑: progress (0..15) → rate 0.5x..2.0x, 0.1 단위. */
+    private static final int TTS_RATE_STEPS = 15;
+    private static final float TTS_RATE_MIN = 0.5f;
+    private static final float TTS_RATE_STEP = 0.1f;
 
     // Background themes: {bgColor, textColor}
     private static final int[][] THEMES = {
@@ -52,12 +67,14 @@ public class SettingsBottomSheet extends BottomSheetDialogFragment {
     private int currentBgColor;
     private boolean currentTapSwap;
     private boolean currentBold;
+    private float currentTtsRate;
     private View[] themeButtons;
     private Drawable selectedRing;
     /** 글자 크기 슬라이더가 터치 드래그 중인지. onStartTrackingTouch / onStopTrackingTouch 로 토글. */
     private boolean sizeSliderDragging = false;
 
-    public static SettingsBottomSheet newInstance(float sizeSp, int textColor, int bgColor, boolean tapSwap, boolean bold) {
+    public static SettingsBottomSheet newInstance(float sizeSp, int textColor, int bgColor,
+                                                  boolean tapSwap, boolean bold, float ttsRate) {
         SettingsBottomSheet f = new SettingsBottomSheet();
         Bundle args = new Bundle();
         args.putFloat(ARG_SIZE, sizeSp);
@@ -65,6 +82,7 @@ public class SettingsBottomSheet extends BottomSheetDialogFragment {
         args.putInt(ARG_BG_COLOR, bgColor);
         args.putBoolean(ARG_TAP_SWAP, tapSwap);
         args.putBoolean(ARG_BOLD, bold);
+        args.putFloat(ARG_TTS_RATE, ttsRate);
         f.setArguments(args);
         return f;
     }
@@ -97,6 +115,7 @@ public class SettingsBottomSheet extends BottomSheetDialogFragment {
         currentBgColor = args != null ? args.getInt(ARG_BG_COLOR, 0xFFFFFFFF) : 0xFFFFFFFF;
         currentTapSwap = args != null && args.getBoolean(ARG_TAP_SWAP, false);
         currentBold = args != null && args.getBoolean(ARG_BOLD, false);
+        currentTtsRate = args != null ? args.getFloat(ARG_TTS_RATE, 1.0f) : 1.0f;
 
         // Font size seek bar
         SeekBar seekSize = v.findViewById(R.id.seek_font_size);
@@ -166,7 +185,51 @@ public class SettingsBottomSheet extends BottomSheetDialogFragment {
             });
         }
 
+        // TTS 속도 — 즉시 적용 (다음 페이지 발화부터 새 속도). 큰 비용 없음.
+        SeekBar seekRate = v.findViewById(R.id.seek_tts_rate);
+        TextView tvRate = v.findViewById(R.id.tv_tts_rate);
+        if (seekRate != null && tvRate != null) {
+            seekRate.setMax(TTS_RATE_STEPS);
+            int rateIdx = ttsRateToProgress(currentTtsRate);
+            seekRate.setProgress(rateIdx);
+            tvRate.setText(formatRate(currentTtsRate));
+            seekRate.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+                @Override public void onProgressChanged(SeekBar sb, int progress, boolean fromUser) {
+                    currentTtsRate = progressToTtsRate(progress);
+                    tvRate.setText(formatRate(currentTtsRate));
+                    if (fromUser && listener != null) listener.onTtsRateChanged(currentTtsRate);
+                }
+                @Override public void onStartTrackingTouch(SeekBar sb) {}
+                @Override public void onStopTrackingTouch(SeekBar sb) {}
+            });
+        }
+
+        // 음성 엔진 변경 — 시스템 TTS 설정 화면 호출 (Fragment 가 멀티 폴백 처리).
+        Button btnEngine = v.findViewById(R.id.btn_tts_engine_settings);
+        if (btnEngine != null) {
+            btnEngine.setOnClickListener(view -> {
+                if (listener != null) listener.onOpenTtsEngineSettings();
+            });
+        }
+
         return v;
+    }
+
+    private static int ttsRateToProgress(float rate) {
+        int idx = Math.round((rate - TTS_RATE_MIN) / TTS_RATE_STEP);
+        if (idx < 0) idx = 0;
+        if (idx > TTS_RATE_STEPS) idx = TTS_RATE_STEPS;
+        return idx;
+    }
+
+    private static float progressToTtsRate(int progress) {
+        float r = TTS_RATE_MIN + progress * TTS_RATE_STEP;
+        // float 누적 오차 방어 — 0.1 단위로 반올림.
+        return Math.round(r * 10f) / 10f;
+    }
+
+    private static String formatRate(float rate) {
+        return String.format(Locale.US, "%.1fx", rate);
     }
 
     private void updateSelectedThemeIndicator() {

@@ -69,6 +69,7 @@ public class TtsPlaybackService extends Service {
     private int lastSpokenPage = -1;
     private int state = STATE_IDLE;
     private float speechRate = 1.0f;
+    @Nullable private String initialEngine;
 
     // ── Phase 2 추가 ──────────────────────────────────────────────────────────
     private MediaSessionCompat mediaSession;
@@ -206,6 +207,33 @@ public class TtsPlaybackService extends Service {
     public void setSpeechRate(float rate) {
         this.speechRate = rate;
         if (tts != null) tts.setSpeechRate(rate);
+    }
+
+    /**
+     * 시스템 TTS 설정에서 엔진을 바꿨다 돌아왔을 가능성 — 비교 후 다르면 TTS 인스턴스 재초기화.
+     * Fragment.onResume 에서 호출.
+     *
+     * 재생 중이었으면 pendingPlay 로 표식 → init 후 자동 재개. AudioFocus 는 재초기화 동안
+     * 그대로 보유 (잠깐 침묵).
+     */
+    public void checkEngineChange() {
+        if (tts == null) return;
+        String current = tts.getDefaultEngine();
+        // null-safe — 일부 OEM/첫 부팅에서 null 가능.
+        if (current == null || initialEngine == null) return;
+        if (current.equals(initialEngine)) return;
+
+        boolean wasPlaying = (state == STATE_PLAYING);
+        tts.stop();
+        tts.shutdown();
+        tts = null;
+        ttsReady = false;
+        if (wasPlaying) {
+            pendingPlay = true;
+            updatePlaybackState(STATE_PAUSED);
+            updateNotificationFor(STATE_PAUSED);
+        }
+        initTts();  // 새 인스턴스 — onInit 에서 ttsReady=true + flushPendingPlay.
     }
 
     public int getState() { return state; }
@@ -384,6 +412,8 @@ public class TtsPlaybackService extends Service {
                     .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                     .build());
             tts.setSpeechRate(speechRate);
+            // 엔진 변경 감지용 — 인스턴스가 어떤 엔진으로 만들어졌는지 캐싱.
+            initialEngine = tts.getDefaultEngine();
             tts.setOnUtteranceProgressListener(new UtteranceProgressListener() {
                 @Override public void onStart(String utteranceId) {}
                 @Override public void onDone(String utteranceId) {

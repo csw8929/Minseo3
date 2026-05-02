@@ -89,6 +89,7 @@ public class ReaderFragment extends Fragment {
     private static final String PREF_BG_COLOR     = "bg_color";
     private static final String PREF_TAP_SWAP     = "tap_swap";
     private static final String PREF_BOLD         = "bold_text";
+    private static final String PREF_TTS_RATE     = "tts_speech_rate";
 
     private SharedPreferences readerPrefs;
     private float textSizeSp = 17f;
@@ -97,6 +98,7 @@ public class ReaderFragment extends Fragment {
     /** true 면 왼쪽 탭 = 다음 페이지, 오른쪽 탭 = 이전 페이지 (좌/우 기능 스왑). */
     private boolean tapSwap = false;
     private boolean bold = false;
+    private float ttsRate = 1.0f;
 
     // ── Engine
     private final PageRenderer pageRenderer = new PageRenderer();
@@ -145,6 +147,8 @@ public class ReaderFragment extends Fragment {
             ttsBound = true;
             ttsService.addStateListener(ttsStateListener);
             ttsState = ttsService.getState();
+            // 저장된 사용자 속도 적용 — 서비스 default 1.0 을 user 값으로 덮음.
+            ttsService.setSpeechRate(ttsRate);
             updateTtsButton();
             if (ttsPendingPlayAfterBind) {
                 ttsPendingPlayAfterBind = false;
@@ -239,6 +243,7 @@ public class ReaderFragment extends Fragment {
         bgColor    = readerPrefs.getInt(PREF_BG_COLOR, bgColor);
         tapSwap    = readerPrefs.getBoolean(PREF_TAP_SWAP, false);
         bold       = readerPrefs.getBoolean(PREF_BOLD, false);
+        ttsRate    = readerPrefs.getFloat(PREF_TTS_RATE, 1.0f);
 
         view.findViewById(R.id.reader_root).setBackgroundColor(bgColor);
         pageView.setColors(textColor, bgColor);
@@ -265,6 +270,9 @@ public class ReaderFragment extends Fragment {
         // 리더 화면이 실제로 보일 때만 screen-on (ViewPager2 다른 페이지 활성 시 clear).
         requireActivity().getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         loadCurrentBookFromHost();
+        // 시스템 TTS 설정에서 엔진을 바꿨다 돌아왔을 가능성 — 서비스가 자체 TextToSpeech 인스턴스
+        // 를 들고 있으니 자동 갱신 안 됨. 명시적으로 체크.
+        if (ttsBound && ttsService != null) ttsService.checkEngineChange();
     }
 
     /** Host Activity 에서 현재 열린 책 정보를 받아와 필요 시 reload. */
@@ -832,8 +840,16 @@ public class ReaderFragment extends Fragment {
     // ── Settings ─────────────────────────────────────────────────────────────
 
     private void showSettings() {
-        SettingsBottomSheet sheet = SettingsBottomSheet.newInstance(textSizeSp, textColor, bgColor, tapSwap, bold);
+        SettingsBottomSheet sheet = SettingsBottomSheet.newInstance(textSizeSp, textColor, bgColor, tapSwap, bold, ttsRate);
         sheet.setListener(new SettingsBottomSheet.Listener() {
+            @Override public void onTtsRateChanged(float rate) {
+                ttsRate = rate;
+                readerPrefs.edit().putFloat(PREF_TTS_RATE, ttsRate).apply();
+                if (ttsBound && ttsService != null) ttsService.setSpeechRate(ttsRate);
+            }
+            @Override public void onOpenTtsEngineSettings() {
+                openSystemTtsSettings();
+            }
             @Override public void onSizePreview(float newSizeSp) {
                 // 드래그 중 싼 프리뷰 — 현재 페이지 텍스트를 새 크기로 리드로우만 한다.
                 // 페이지 경계는 옛 크기 기준이라 상/하가 잘리거나 남을 수 있지만 프리뷰 용도이므로 OK.
@@ -900,6 +916,38 @@ public class ReaderFragment extends Fragment {
             return;  // 콜백에서 actuallyPlayTts 호출.
         }
         actuallyPlayTts();
+    }
+
+    /**
+     * 시스템 TTS 설정 화면 열기. AOSP 표준 → OEM 별칭 → 보이스 입력 → 일반 설정 → 토스트 폴백.
+     * Samsung One UI 의 변종까지 포괄.
+     */
+    private void openSystemTtsSettings() {
+        String[] actions = {
+                "com.android.settings.TTS_SETTINGS",
+                "android.settings.TTS_SETTINGS",
+        };
+        android.content.pm.PackageManager pm = requireContext().getPackageManager();
+        for (String action : actions) {
+            Intent intent = new Intent(action).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            if (intent.resolveActivity(pm) != null) {
+                startActivity(intent);
+                return;
+            }
+        }
+        try {
+            startActivity(new Intent(android.provider.Settings.ACTION_VOICE_INPUT_SETTINGS)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+            return;
+        } catch (Exception ignored) {}
+        try {
+            startActivity(new Intent(android.provider.Settings.ACTION_SETTINGS)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+            return;
+        } catch (Exception ignored) {}
+        Toast.makeText(requireContext(),
+                "기기 설정 → 일반 → 언어 → TTS 에서 변경하세요",
+                Toast.LENGTH_LONG).show();
     }
 
     /** 권한 체크 통과 후 실제 재생 시작 — startForegroundService + 서비스 play. */
