@@ -4,6 +4,23 @@ All notable changes to this project are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versions use 4-digit `MAJOR.MINOR.PATCH.MICRO`.
 
+## [0.5.0.0] - 2026-05-02
+
+### Added
+- **TTS V1 — 음성 재생 전면 개편.** 화면 OFF / 폴드 닫음 / 앱 백그라운드 상태에서도 음성 계속 재생, 잠금화면에 미디어 컨트롤 노출, 이전 한 페이지 끝나면 멈추던 자동 진행 결함 수정. 세 갈래로 묶인 패키지:
+  - **백그라운드 재생.** Foreground Service + `MediaSessionCompat` + `Notification.MediaStyle`. 잠금화면에서 ▶/▮▮ 토글 가능. 헤드셋/Bluetooth A2DP 미디어 키도 같은 경로로 라우팅.
+  - **AudioFocus 자동 처리.** 카카오톡 통화 / 다른 미디어 끼어들 때 자동 일시정지, 통화 끝나면 자동 재개 (transient). 영구 손실 (다른 음악 앱 재생) 시 정지. 헤드폰 뽑힘 (BECOMING_NOISY) 도 자동 일시정지.
+  - **자동 진행 수정.** 기존 `TtsController` 의 `onDone → nextPage` 콜백 체인이 화면 ON 상태에서도 한 페이지 후 멈추던 결함을, ReaderFragment 안 직접 보유에서 별도 `TtsPlaybackService` 로 이전하면서 동시 해결. utteranceId 에 페이지 + generation 인코딩으로 stale onDone race 차단.
+- **읽기 속도 토글 (0.7x / 1.0x / 1.2x / 1.5x).** 설정 BottomSheet 안 4개 버튼 그룹. 클릭 즉시 같은 페이지 새 속도로 재발화 (Android 표준 `setSpeechRate` 는 다음 utterance 부터 적용되어 한참 후 반영되던 체감 해소). `reader_prefs.tts_speech_rate` 영구 저장.
+- **시스템 TTS 설정 진입점.** "음성 엔진 변경" 버튼으로 OS TTS 설정 화면 열기 (Samsung One UI 변종 포함 4단계 폴백: AOSP TTS_SETTINGS → OEM 별칭 → VOICE_INPUT → ACTION_SETTINGS → 토스트). 사용자가 Samsung TTS / Google TTS / Naver Clova 등 더 좋은 한국어 엔진을 직접 골라 쓸 수 있음. 엔진 변경 후 앱 복귀 시 onResume 가 자동 재초기화.
+
+### Changed
+- 외부 의존성 1개 추가 — `androidx.media:1.7.0` (`MediaSessionCompat`, `MediaButtonReceiver`). media3 도입은 의식적으로 회피 (TTS 가 음원이 아니라 발화 명령이라 Player 추상 부자연스러움 + APK 1-2MB 비대화).
+- 매니페스트 권한 3개 추가: `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_MEDIA_PLAYBACK` (API 34+), `POST_NOTIFICATIONS` (API 33+ 런타임 요청).
+- `TtsController.java` 삭제 (67줄). 핵심 init/listener 패턴은 `TtsPlaybackService.initTts()` 안으로 이식.
+- `ReaderFragment` 의 `onPause` 자동 정지 로직 폐기 — 백그라운드 재생 가능. `onDestroyView` 의 `tts.shutdown()` 도 폐기 — 서비스가 foreground 로 살아남아 잠금화면 노티에서 컨트롤.
+- 설계 문서: `~/.gstack/projects/Minseo3/USER-main-design-20260502-203739.md` (Status: APPROVED, 품질 8.5/10). 상세 변경 기록: `docs/2026-05-02-tts-v1-phase{1,2,3}-*.md`.
+
 ## [0.4.4.0] - 2026-04-28
 
 ### Changed

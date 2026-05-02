@@ -46,6 +46,7 @@ All versions are managed via `gradle/libs.versions.toml` (version catalog):
 | `androidx.activity` | `EdgeToEdge` and `ComponentActivity` |
 | `androidx.constraintlayout` | Root layout in activity_main |
 | `com.google.android.material` | Material3 theme |
+| `androidx.media` | `MediaSessionCompat` / `Notification.MediaStyle` for TTS V1 잠금화면 컨트롤 |
 | `junit` | Local unit tests |
 | `androidx.test.espresso` | UI instrumented tests |
 
