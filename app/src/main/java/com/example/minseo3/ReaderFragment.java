@@ -90,6 +90,7 @@ public class ReaderFragment extends Fragment {
     private static final String PREF_TAP_SWAP     = "tap_swap";
     private static final String PREF_BOLD         = "bold_text";
     private static final String PREF_TTS_RATE     = "tts_speech_rate";
+    private static final String PREF_NOTIF_PERM_ASKED = "tts_notif_perm_asked";
 
     private SharedPreferences readerPrefs;
     private float textSizeSp = 17f;
@@ -136,7 +137,6 @@ public class ReaderFragment extends Fragment {
     private TtsPlaybackService ttsService;
     private boolean ttsBound = false;
     private boolean ttsPendingPlayAfterBind = false;
-    private boolean notifPermAsked = false;
     private final TtsPlaybackQueue ttsQueue = TtsPlaybackQueue.get();
     private int ttsState = TtsPlaybackService.STATE_IDLE;
     private ActivityResultLauncher<String> notifPermLauncher;
@@ -193,6 +193,7 @@ public class ReaderFragment extends Fragment {
         notifPermLauncher = registerForActivityResult(
                 new ActivityResultContracts.RequestPermission(),
                 granted -> {
+                    if (!isAdded() || !paginationReady) return;  // 다이얼로그 동안 detached/리로드 가능.
                     if (!granted) {
                         Toast.makeText(requireContext(),
                                 "잠금화면 컨트롤 없이 음성만 재생됩니다.",
@@ -905,13 +906,14 @@ public class ReaderFragment extends Fragment {
             ttsService.pause();
             return;
         }
-        // play 분기 — 첫 재생 시 알림 권한 한 번 요청 (API 33+).
+        // play 분기 — 첫 재생 시 알림 권한 한 번 요청 (API 33+). prefs 영구 저장 — 회전/재시작
+        // 시 재요청 안 하도록.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
-                && !notifPermAsked
+                && !readerPrefs.getBoolean(PREF_NOTIF_PERM_ASKED, false)
                 && ContextCompat.checkSelfPermission(requireContext(),
                         Manifest.permission.POST_NOTIFICATIONS)
                         != PackageManager.PERMISSION_GRANTED) {
-            notifPermAsked = true;
+            readerPrefs.edit().putBoolean(PREF_NOTIF_PERM_ASKED, true).apply();
             notifPermLauncher.launch(Manifest.permission.POST_NOTIFICATIONS);
             return;  // 콜백에서 actuallyPlayTts 호출.
         }

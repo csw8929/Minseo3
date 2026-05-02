@@ -22,6 +22,7 @@ import android.support.v4.media.session.PlaybackStateCompat;
 import android.util.Log;
 
 import androidx.annotation.Nullable;
+import androidx.core.content.ContextCompat;
 import androidx.media.session.MediaButtonReceiver;
 
 import java.util.Locale;
@@ -207,6 +208,12 @@ public class TtsPlaybackService extends Service {
     }
 
     public void setSpeechRate(float rate) {
+        // Clamp 방어 — 호출자가 비정상 값 (0, 음수, 과대값) 줘도 TTS 망가지지 않게.
+        if (rate < 0.1f) rate = 0.1f;
+        if (rate > 3.0f) rate = 3.0f;
+        // No-op 가드 — 회전 후 rebind 시 onServiceConnected 가 항상 setSpeechRate 호출하는데
+        // 같은 값이면 재발화하지 않음 (사용자가 페이지 처음으로 돌아가는 hostile UX 방지).
+        if (this.speechRate == rate) return;
         this.speechRate = rate;
         if (tts == null) return;
         tts.setSpeechRate(rate);
@@ -286,6 +293,8 @@ public class TtsPlaybackService extends Service {
 
     private void updateNotificationFor(int s) {
         if (!isForegroundActive) return;
+        // 정지 후 main looper 에 큐된 listener 가 늦게 도착하는 경우 방어 — stale 노티 발행 방지.
+        if (s == STATE_STOPPED) return;
         Notification n = TtsNotificationBuilder.build(
                 this, mediaSession, s,
                 queue.displayTitle(), queue.getCurrentPage(), queue.pageCount());
@@ -372,7 +381,12 @@ public class TtsPlaybackService extends Service {
 
     private void registerNoisyReceiver() {
         if (noisyReceiverRegistered) return;
-        registerReceiver(noisyReceiver, new IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY));
+        // API 33+ targetSdk 34+ 에서 동적 register 시 EXPORTED/NOT_EXPORTED 플래그 의무.
+        // 시스템 브로드캐스트는 면제되는 케이스 있지만 ContextCompat 으로 안전하게.
+        ContextCompat.registerReceiver(
+                this, noisyReceiver,
+                new IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY),
+                ContextCompat.RECEIVER_NOT_EXPORTED);
         noisyReceiverRegistered = true;
     }
 
@@ -447,6 +461,8 @@ public class TtsPlaybackService extends Service {
 
     private void speakCurrentPage() {
         if (!ttsReady || tts == null) return;
+        // 빠른 stop / pause 후 main looper 에 큐된 queue listener 가 늦게 도착하는 경우 방어.
+        if (state != STATE_PLAYING) return;
         int page = queue.getCurrentPage();
         String pageText = queue.getPageText(page);
         if (pageText.isEmpty()) return;

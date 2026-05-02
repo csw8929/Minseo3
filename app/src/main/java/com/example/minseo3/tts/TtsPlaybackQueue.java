@@ -131,7 +131,7 @@ public final class TtsPlaybackQueue {
         return pageStartOffsets[p];
     }
 
-    public void addListener(Listener l) { if (!listeners.contains(l)) listeners.add(l); }
+    public void addListener(Listener l) { listeners.addIfAbsent(l); }
     public void removeListener(Listener l) { listeners.remove(l); }
 
     private void notifyPageChanged() {
