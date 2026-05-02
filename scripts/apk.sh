@@ -23,6 +23,7 @@ declare -A DEVICE_NAMES=(
   [R3CT70FY0ZP]="폴드"
   [R3CX705W62D]="플립"
   [T813128GB25301890106]="미니"
+  [R34YA0007ZJ]="xr"
 )
 
 # 스크립트 위치에서 프로젝트 루트로 이동 — APK_FILE 이 상대 경로여도 작동.
