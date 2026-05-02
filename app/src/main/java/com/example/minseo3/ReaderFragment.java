@@ -1,9 +1,13 @@
 package com.example.minseo3;
 
+import android.content.ComponentName;
+import android.content.Context;
 import android.content.Intent;
+import android.content.ServiceConnection;
 import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.os.Handler;
+import android.os.IBinder;
 import android.os.Looper;
 import android.util.TypedValue;
 import android.view.GestureDetector;
@@ -28,6 +32,8 @@ import com.example.minseo3.nas.ConflictResolver;
 import com.example.minseo3.nas.RemoteBookmarksRepository;
 import com.example.minseo3.nas.RemoteProgressRepository;
 import com.example.minseo3.nas.RemotePosition;
+import com.example.minseo3.tts.TtsPlaybackQueue;
+import com.example.minseo3.tts.TtsPlaybackService;
 
 import java.io.File;
 import java.util.List;
@@ -117,12 +123,52 @@ public class ReaderFragment extends Fragment {
         nasSyncManager.push(fileHash, filePath, offset, text.length());
     });
 
-    private TtsController tts;
-    private boolean ttsActive = false;
+    // ── TTS (Phase 1: 일반 bound service) ─────────────────────────────────
+    private TtsPlaybackService ttsService;
+    private boolean ttsBound = false;
+    private boolean ttsPendingPlayAfterBind = false;
+    private final TtsPlaybackQueue ttsQueue = TtsPlaybackQueue.get();
+    private int ttsState = TtsPlaybackService.STATE_IDLE;
+
+    private final ServiceConnection ttsConn = new ServiceConnection() {
+        @Override public void onServiceConnected(ComponentName name, IBinder service) {
+            ttsService = ((TtsPlaybackService.LocalBinder) service).getService();
+            ttsBound = true;
+            ttsService.addStateListener(ttsStateListener);
+            ttsState = ttsService.getState();
+            updateTtsButton();
+            if (ttsPendingPlayAfterBind) {
+                ttsPendingPlayAfterBind = false;
+                ttsService.play();
+            }
+        }
+        @Override public void onServiceDisconnected(ComponentName name) {
+            // 시스템이 서비스를 죽인 경우 — UI 만 정리. 다음 ▶ 탭에 다시 시작.
+            if (ttsService != null) ttsService.removeStateListener(ttsStateListener);
+            ttsService = null;
+            ttsBound = false;
+            ttsState = TtsPlaybackService.STATE_IDLE;
+            updateTtsButton();
+        }
+    };
+
+    private final TtsPlaybackService.StateListener ttsStateListener = state -> {
+        ttsState = state;
+        updateTtsButton();
+    };
+
+    private final TtsPlaybackQueue.Listener ttsQueueListener = new TtsPlaybackQueue.Listener() {
+        @Override public void onPageChanged(int page) {
+            // 자동 진행 / 외부 점프 모두 이 경로 — 같은 페이지면 무시 (사용자 탭으로 이미 이동한 경우).
+            if (page == currentPage) return;
+            displayPage(page);
+        }
+        @Override public void onLoadChanged() { /* Phase 1 no-op */ }
+    };
 
     /** BookListActivity 의 volume key handler 가 참조 — TTS 중이면 시스템 볼륨이
      *  TTS 음량을 조절해야 하므로 인터셉트하지 않고 system 에 위임. */
-    boolean isTtsActive() { return ttsActive; }
+    boolean isTtsActive() { return ttsState == TtsPlaybackService.STATE_PLAYING; }
 
     private boolean skipConflictResolve = false;
     private boolean conflictResolved = false;
@@ -172,15 +218,12 @@ public class ReaderFragment extends Fragment {
         pageView.setColors(textColor, bgColor);
         pageView.setBold(bold);
 
-        tts = new TtsController(requireContext(), new TtsController.Listener() {
-            @Override public void onReady() {}
-            @Override public void onDone() {
-                if (ttsActive) mainHandler.post(() -> nextPage());
-            }
-            @Override public void onError() {
-                mainHandler.post(() -> { ttsActive = false; updateTtsButton(); });
-            }
-        });
+        // TTS 서비스 바인딩 — Fragment view 가 살아있는 동안 유지. ▶ 탭 시 즉시 응답.
+        ttsQueue.addListener(ttsQueueListener);
+        Context appCtx = requireContext().getApplicationContext();
+        appCtx.bindService(
+                new Intent(appCtx, TtsPlaybackService.class),
+                ttsConn, Context.BIND_AUTO_CREATE);
 
         setupTouchHandler();
         setupSeekBar();
@@ -363,6 +406,8 @@ public class ReaderFragment extends Fragment {
                         tvStatusLeft.setText("페이지 계산 중 0%");
                     }
                     paginationReady = true;
+                    // TTS 큐에 책 등록 — partial 이라도 발화 가능 페이지가 있음. displayPage 가 곧 setCurrentPage 호출.
+                    ttsQueue.load(text, pageRenderer.getOffsetsArray(), fileHash, FileUtils.displayName(new File(filePath)));
                     displayPage(firstPage);
                 });
 
@@ -411,6 +456,8 @@ public class ReaderFragment extends Fragment {
                     int newPage = pageRenderer.offsetToPage(currentCharOffset);
                     seekBar.setMax(Math.max(1, pageRenderer.getPageCount() - 1));
                     seekBar.setEnabled(true);
+                    // TTS 큐에 풀 텍스트/오프셋 반영. displayPage 가 곧 setCurrentPage 로 새 페이지 통지.
+                    ttsQueue.replaceOffsets(fullOffsets, tFull);
                     displayPage(newPage);
                     maybeResolveNasConflict();
                     maybePullBookmarks();
@@ -455,6 +502,7 @@ public class ReaderFragment extends Fragment {
                     seekBar.setMax(Math.max(1, pageRenderer.getPageCount() - 1));
                     seekBar.setEnabled(true);
                     paginationReady = true;
+                    ttsQueue.replaceOffsets(cached, text);
                     displayPage(page);
                 });
                 return;
@@ -493,6 +541,7 @@ public class ReaderFragment extends Fragment {
                 seekBar.setMax(Math.max(1, pageRenderer.getPageCount() - 1));
                 seekBar.setEnabled(true);
                 paginationReady = true;
+                ttsQueue.replaceOffsets(offsets, text);
                 displayPage(page);
                 maybeResolveNasConflict();
                 maybePullBookmarks();
@@ -600,6 +649,8 @@ public class ReaderFragment extends Fragment {
 
         refreshBookmarkIcon();
         scheduleSave();
+        // TTS 큐도 같은 페이지로 — 이미 같은 값이면 setCurrentPage 가 no-op.
+        ttsQueue.setCurrentPage(currentPage);
     }
 
     private void refreshBookmarkIcon() {
@@ -627,10 +678,6 @@ public class ReaderFragment extends Fragment {
                 Toast.LENGTH_SHORT).show();
     }
 
-    private void nextPage() {
-        if (currentPage < pageRenderer.getPageCount() - 1) displayPage(currentPage + 1);
-    }
-
     // ── Page-turn tap coalescing ─────────────────────────────────────────────
     private int pendingPageDelta = 0;
     private final Runnable applyPageDeltaRunnable = () -> {
@@ -638,7 +685,11 @@ public class ReaderFragment extends Fragment {
         int target = currentPage + pendingPageDelta;
         pendingPageDelta = 0;
         displayPage(target);
-        if (ttsActive) speakCurrentPage();
+        // TTS 재생 중 사용자 페이지 이동 시 자동 재발화는 displayPage→queue.setCurrentPage
+        // → service queueListener 가 처리. 명시적으로 한 번 더 신호 — race 차단.
+        if (ttsBound && ttsService != null && isTtsActive()) {
+            ttsService.onPageMovedExternally();
+        }
     };
 
     /** Volume key (BookListActivity.onKeyDown) / 탭 / TTS 자동 진행 모두 이 경로로
@@ -807,17 +858,24 @@ public class ReaderFragment extends Fragment {
 
     private void toggleTts() {
         if (!paginationReady) return;
-        ttsActive = !ttsActive;
-        updateTtsButton();
-        if (ttsActive) speakCurrentPage(); else tts.stop();
-    }
-
-    private void speakCurrentPage() {
-        tts.speak(pageRenderer.getPageText(text, currentPage));
+        if (!ttsBound || ttsService == null) {
+            // 서비스 아직 바인딩 전이면 (아주 빠른 탭) 큐에 두고 onServiceConnected 에서 처리.
+            ttsPendingPlayAfterBind = true;
+            return;
+        }
+        if (ttsState == TtsPlaybackService.STATE_PLAYING) {
+            ttsService.pause();
+        } else {
+            ttsService.play();
+        }
     }
 
     private void updateTtsButton() {
-        btnTts.setImageResource(ttsActive ? android.R.drawable.ic_media_pause : android.R.drawable.ic_media_play);
+        if (btnTts == null) return;
+        boolean playing = (ttsState == TtsPlaybackService.STATE_PLAYING);
+        btnTts.setImageResource(playing
+                ? android.R.drawable.ic_media_pause
+                : android.R.drawable.ic_media_play);
     }
 
     // ── Lifecycle ────────────────────────────────────────────────────────────
@@ -826,8 +884,8 @@ public class ReaderFragment extends Fragment {
     public void onPause() {
         super.onPause();
         requireActivity().getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        if (tts != null) tts.stop();
-        ttsActive = false;
+        // Phase 1 — 화면 안 보이면 음성 정지. Phase 2 에서 foreground service + AudioFocus 로 변경.
+        if (ttsBound && ttsService != null) ttsService.pause();
         flushSaveNow();
     }
 
@@ -836,7 +894,16 @@ public class ReaderFragment extends Fragment {
         // listener 해제는 super 보다 먼저 — super.onDestroyView 중 콜백이 뜨면 getView() null.
         if (bookmarksRepo != null) bookmarksRepo.removeChangedListener(bookmarksChangedListener);
         uiHideHandler.removeCallbacks(uiHideRunnable);
-        if (tts != null) tts.shutdown();
+        ttsQueue.removeListener(ttsQueueListener);
+        if (ttsBound) {
+            if (ttsService != null) {
+                ttsService.removeStateListener(ttsStateListener);
+                ttsService.stop();
+            }
+            requireContext().getApplicationContext().unbindService(ttsConn);
+            ttsBound = false;
+            ttsService = null;
+        }
         super.onDestroyView();
     }
 

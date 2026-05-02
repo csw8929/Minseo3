@@ -39,6 +39,11 @@
         <!-- Kept but not launched directly -->
         <activity android:name=".MainActivity" android:exported="false" />
 
+        <!-- TTS 재생 서비스. Phase 1 — 일반 bound service. Phase 2 에서 foregroundServiceType="mediaPlayback" 추가 예정. -->
+        <service
+            android:name=".tts.TtsPlaybackService"
+            android:exported="false" />
+
     </application>
 
 </manifest>
