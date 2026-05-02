@@ -1,36 +1,48 @@
 package com.example.minseo3.tts;
 
+import android.app.Notification;
 import android.app.Service;
+import android.content.BroadcastReceiver;
+import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.media.AudioAttributes;
+import android.media.AudioFocusRequest;
 import android.media.AudioManager;
 import android.os.Binder;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.speech.tts.TextToSpeech;
 import android.speech.tts.UtteranceProgressListener;
+import android.support.v4.media.session.MediaSessionCompat;
+import android.support.v4.media.session.PlaybackStateCompat;
 import android.util.Log;
 
 import androidx.annotation.Nullable;
+import androidx.media.session.MediaButtonReceiver;
 
 import java.util.Locale;
 import java.util.concurrent.CopyOnWriteArraySet;
 
 /**
- * TTS 발화 서비스. 책 단위 페이지 자동 진행 + 외부에서 들어오는 페이지 점프 처리.
+ * TTS 재생 서비스.
  *
- * <p>Phase 1 — 일반 bound service. startForeground / 알림 / MediaSession / AudioFocus
- * 모두 미구현. 화면 ON (ReaderFragment 가 visible) 동안에만 동작 보장. Phase 2 에서
- * foreground 전환.
+ * <p>Phase 2 — Foreground Service + MediaSession + AudioFocus + BECOMING_NOISY.
+ * 화면 OFF / 앱 백그라운드 / 폴드 닫힘 상태에서도 음성 계속 재생. 잠금화면 컨트롤 + 헤드셋 미디어
+ * 키 동작. 통화/유튜브 끼어들기 시 자동 일시정지.
  *
  * <p>자동 진행 루프: play → speakCurrentPage → tts.onDone → queue.setCurrentPage(next)
- * → queue listener → speakCurrentPage. 외부 skip(prev/next/직접 페이지 점프) 도 같은
- * 경로로 들어와 single source of truth 유지.
+ * → queue listener → speakCurrentPage. 외부 skip 도 같은 경로.
  *
  * <p>{@code lastSpokenPage} 가 진실의 원천 — onDone 의 utteranceId ("page-N") 의 N 이
  * lastSpokenPage 와 같으면 정상 진행, 다르면 stale (skip 으로 이미 점프함) 으로 ignore.
+ *
+ * <p>라이프사이클: ReaderFragment 가 ▶ 첫 탭에 startForegroundService + bindService.
+ * 이후 unbind 해도 startForeground 상태 유지. 책 끝 / 사용자 정지 시 stopForeground +
+ * stopSelf 로 종료.
  */
 public class TtsPlaybackService extends Service {
 
@@ -58,6 +70,14 @@ public class TtsPlaybackService extends Service {
     private int state = STATE_IDLE;
     private float speechRate = 1.0f;
 
+    // ── Phase 2 추가 ──────────────────────────────────────────────────────────
+    private MediaSessionCompat mediaSession;
+    private AudioManager audioManager;
+    @Nullable private AudioFocusRequest focusRequest;  // API 26+
+    private boolean isForegroundActive = false;
+    private boolean noisyReceiverRegistered = false;
+    private boolean wasPlayingBeforeFocusLoss = false;
+
     public class LocalBinder extends Binder {
         public TtsPlaybackService getService() { return TtsPlaybackService.this; }
     }
@@ -65,6 +85,8 @@ public class TtsPlaybackService extends Service {
     @Override
     public void onCreate() {
         super.onCreate();
+        audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+        setupMediaSession();
         queue.addListener(queueListener);
         initTts();
     }
@@ -74,8 +96,30 @@ public class TtsPlaybackService extends Service {
     public IBinder onBind(Intent intent) { return binder; }
 
     @Override
+    public int onStartCommand(@Nullable Intent intent, int flags, int startId) {
+        // startForegroundService 의 5초 데드라인 — 즉시 placeholder 노티로 foreground 진입.
+        if (!isForegroundActive) {
+            startForeground(TtsNotificationBuilder.NOTIF_ID,
+                    TtsNotificationBuilder.buildPlaceholder(this));
+            isForegroundActive = true;
+        }
+        // Bluetooth/headset 미디어 키 라우팅
+        if (intent != null && Intent.ACTION_MEDIA_BUTTON.equals(intent.getAction())) {
+            MediaButtonReceiver.handleIntent(mediaSession, intent);
+        }
+        return START_NOT_STICKY;
+    }
+
+    @Override
     public void onDestroy() {
+        unregisterNoisyReceiver();
+        abandonAudioFocus();
         queue.removeListener(queueListener);
+        if (mediaSession != null) {
+            mediaSession.setActive(false);
+            mediaSession.release();
+            mediaSession = null;
+        }
         if (tts != null) {
             tts.stop();
             tts.shutdown();
@@ -93,39 +137,70 @@ public class TtsPlaybackService extends Service {
         if (state == STATE_PLAYING) return;
         if (!ttsReady) {
             pendingPlay = true;
-            // ttsReady 가 되면 OnInitListener 가 flushPendingPlay 호출.
             return;
         }
+        if (!requestAudioFocus()) {
+            Log.w(TAG, "AudioFocus 획득 실패 — pause 상태 유지");
+            setState(STATE_PAUSED);
+            updateNotificationFor(STATE_PAUSED);
+            updatePlaybackState(STATE_PAUSED);
+            return;
+        }
+        mediaSession.setActive(true);
+        registerNoisyReceiver();
         setState(STATE_PLAYING);
+        updatePlaybackState(STATE_PLAYING);
+        updateNotificationFor(STATE_PLAYING);
         speakCurrentPage();
     }
 
     public void pause() {
         pendingPlay = false;
-        if (state != STATE_PLAYING) {
-            // 이미 정지 / 일시정지 — idempotent.
-            if (state != STATE_PAUSED) setState(STATE_PAUSED);
-            return;
-        }
+        if (state == STATE_PAUSED || state == STATE_IDLE) return;
+        if (state == STATE_STOPPED) return;
         if (tts != null) tts.stop();
+        unregisterNoisyReceiver();
         setState(STATE_PAUSED);
+        updatePlaybackState(STATE_PAUSED);
+        updateNotificationFor(STATE_PAUSED);
+        // foreground 유지 — 사용자가 노티로 재개 가능.
     }
 
     public void stop() {
         pendingPlay = false;
         if (tts != null) tts.stop();
+        unregisterNoisyReceiver();
+        abandonAudioFocus();
+        if (mediaSession != null) mediaSession.setActive(false);
         setState(STATE_STOPPED);
+        updatePlaybackState(STATE_STOPPED);
+        if (isForegroundActive) {
+            stopForeground(STOP_FOREGROUND_REMOVE);
+            isForegroundActive = false;
+        }
+        stopSelf();
     }
 
-    /** 사용자가 외부에서 페이지를 직접 이동 (탭/볼륨 키/시크바). 재생 중이면 새 페이지부터 재발화. */
+    /** 사용자가 외부에서 페이지 직접 이동 (탭/시크바). 재생 중이면 새 페이지부터 재발화. */
     public void onPageMovedExternally() {
-        if (state == STATE_PLAYING) {
-            // queue.currentPage 는 이미 외부에서 갱신됨 → 우리는 재발화만.
-            // (내부적으론 queueListener 도 같은 신호를 받지만, 외부 호출 경로에서는 명시적으로 호출.)
-            if (queue.getCurrentPage() != lastSpokenPage) {
-                speakCurrentPage();
-            }
+        if (state == STATE_PLAYING && queue.getCurrentPage() != lastSpokenPage) {
+            speakCurrentPage();
         }
+    }
+
+    public void skipNext() {
+        int next = queue.getCurrentPage() + 1;
+        if (next >= queue.pageCount()) return;
+        if (tts != null) tts.stop();
+        queue.setCurrentPage(next);
+        // queue 리스너가 main 에서 speakCurrentPage 호출.
+    }
+
+    public void skipPrev() {
+        int prev = queue.getCurrentPage() - 1;
+        if (prev < 0) return;
+        if (tts != null) tts.stop();
+        queue.setCurrentPage(prev);
     }
 
     public void setSpeechRate(float rate) {
@@ -138,21 +213,158 @@ public class TtsPlaybackService extends Service {
     public void addStateListener(StateListener l) { stateListeners.add(l); }
     public void removeStateListener(StateListener l) { stateListeners.remove(l); }
 
+    // ── MediaSession ─────────────────────────────────────────────────────────
+
+    private void setupMediaSession() {
+        mediaSession = new MediaSessionCompat(this, "TtsPlaybackService");
+        mediaSession.setCallback(new MediaSessionCompat.Callback() {
+            @Override public void onPlay() { TtsPlaybackService.this.play(); }
+            @Override public void onPause() { TtsPlaybackService.this.pause(); }
+            @Override public void onStop() { TtsPlaybackService.this.stop(); }
+            @Override public void onSkipToNext() { TtsPlaybackService.this.skipNext(); }
+            @Override public void onSkipToPrevious() { TtsPlaybackService.this.skipPrev(); }
+        });
+        updatePlaybackState(STATE_IDLE);
+    }
+
+    private void updatePlaybackState(int s) {
+        if (mediaSession == null) return;
+        int psState;
+        switch (s) {
+            case STATE_PLAYING: psState = PlaybackStateCompat.STATE_PLAYING; break;
+            case STATE_PAUSED:  psState = PlaybackStateCompat.STATE_PAUSED;  break;
+            case STATE_STOPPED: psState = PlaybackStateCompat.STATE_STOPPED; break;
+            default:            psState = PlaybackStateCompat.STATE_NONE;
+        }
+        long actions = PlaybackStateCompat.ACTION_PLAY
+                | PlaybackStateCompat.ACTION_PAUSE
+                | PlaybackStateCompat.ACTION_PLAY_PAUSE
+                | PlaybackStateCompat.ACTION_SKIP_TO_NEXT
+                | PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS
+                | PlaybackStateCompat.ACTION_STOP;
+        PlaybackStateCompat ps = new PlaybackStateCompat.Builder()
+                .setActions(actions)
+                .setState(psState, PlaybackStateCompat.PLAYBACK_POSITION_UNKNOWN, 1.0f)
+                .build();
+        mediaSession.setPlaybackState(ps);
+    }
+
+    private void updateNotificationFor(int s) {
+        if (!isForegroundActive) return;
+        Notification n = TtsNotificationBuilder.build(
+                this, mediaSession, s,
+                queue.displayTitle(), queue.getCurrentPage(), queue.pageCount());
+        // 재생 → ongoing, 일시정지 → 사용자가 swipe 로 dismiss 가능.
+        Context ctx = getApplicationContext();
+        ((android.app.NotificationManager)
+                ctx.getSystemService(Context.NOTIFICATION_SERVICE))
+                .notify(TtsNotificationBuilder.NOTIF_ID, n);
+    }
+
+    // ── AudioFocus ───────────────────────────────────────────────────────────
+
+    private final AudioManager.OnAudioFocusChangeListener focusListener = focusChange -> {
+        switch (focusChange) {
+            case AudioManager.AUDIOFOCUS_LOSS:
+                // 영구 — 다른 앱이 우선권을 영구적으로 가져감 (예: 음악 재생 시작).
+                mainHandler.post(this::stop);
+                break;
+            case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT:
+            case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK:
+                // 책 음성은 덕킹 의미 없음 — 일시정지. transient 면 GAIN 시 자동 재개.
+                mainHandler.post(() -> {
+                    if (state == STATE_PLAYING) {
+                        wasPlayingBeforeFocusLoss = true;
+                        pause();
+                    }
+                });
+                break;
+            case AudioManager.AUDIOFOCUS_GAIN:
+                if (wasPlayingBeforeFocusLoss) {
+                    wasPlayingBeforeFocusLoss = false;
+                    mainHandler.post(this::play);
+                }
+                break;
+            default: break;
+        }
+    };
+
+    private boolean requestAudioFocus() {
+        if (audioManager == null) return false;
+        int result;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            AudioAttributes attrs = new AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                    .build();
+            focusRequest = new AudioFocusRequest.Builder(
+                    AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
+                    .setAudioAttributes(attrs)
+                    .setOnAudioFocusChangeListener(focusListener, mainHandler)
+                    .build();
+            result = audioManager.requestAudioFocus(focusRequest);
+        } else {
+            result = audioManager.requestAudioFocus(
+                    focusListener,
+                    AudioManager.STREAM_MUSIC,
+                    AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK);
+        }
+        return result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED;
+    }
+
+    private void abandonAudioFocus() {
+        if (audioManager == null) return;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            if (focusRequest != null) {
+                audioManager.abandonAudioFocusRequest(focusRequest);
+                focusRequest = null;
+            }
+        } else {
+            audioManager.abandonAudioFocus(focusListener);
+        }
+        wasPlayingBeforeFocusLoss = false;
+    }
+
+    // ── BECOMING_NOISY (헤드폰 뽑힘 등) ────────────────────────────────────
+
+    private final BroadcastReceiver noisyReceiver = new BroadcastReceiver() {
+        @Override public void onReceive(Context context, Intent intent) {
+            if (AudioManager.ACTION_AUDIO_BECOMING_NOISY.equals(intent.getAction())) {
+                pause();
+            }
+        }
+    };
+
+    private void registerNoisyReceiver() {
+        if (noisyReceiverRegistered) return;
+        registerReceiver(noisyReceiver, new IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY));
+        noisyReceiverRegistered = true;
+    }
+
+    private void unregisterNoisyReceiver() {
+        if (!noisyReceiverRegistered) return;
+        try {
+            unregisterReceiver(noisyReceiver);
+        } catch (IllegalArgumentException ignored) {}
+        noisyReceiverRegistered = false;
+    }
+
     // ── Queue listener — 자동 진행 + 외부 페이지 변경 모두 이 경로 ──────────
 
     private final TtsPlaybackQueue.Listener queueListener = new TtsPlaybackQueue.Listener() {
         @Override public void onPageChanged(int page) {
-            // 재생 중이고 lastSpokenPage 와 다르면 → 새 페이지부터 재발화.
             if (state == STATE_PLAYING && page != lastSpokenPage) {
                 speakCurrentPage();
             }
+            // 노티 페이지 번호 갱신 (재생/일시정지/정지 무관).
+            updateNotificationFor(state);
         }
         @Override public void onLoadChanged() {
-            // Phase 1: no-op. Phase 2 에서 fileHash 미스매치 감지 후 stopSelf 추가.
+            updateNotificationFor(state);
         }
     };
 
-    // ── Internals ────────────────────────────────────────────────────────────
+    // ── TTS init / speak / utterance done ────────────────────────────────────
 
     private void initTts() {
         tts = new TextToSpeech(getApplicationContext(), status -> {
@@ -167,8 +379,6 @@ public class TtsPlaybackService extends Service {
                     || langResult == TextToSpeech.LANG_NOT_SUPPORTED) {
                 tts.setLanguage(Locale.getDefault());
             }
-            // API 34+ FGS_MEDIA_PLAYBACK 컴플라이언스용 — Phase 1 에선 foreground 안 쓰지만
-            // 미디어 음성으로 인식되도록 미리 세팅. Phase 2 전환 시 추가 작업 없이 동작.
             tts.setAudioAttributes(new AudioAttributes.Builder()
                     .setUsage(AudioAttributes.USAGE_MEDIA)
                     .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
@@ -181,7 +391,11 @@ public class TtsPlaybackService extends Service {
                 }
                 @Override public void onError(String utteranceId) {
                     Log.w(TAG, "TTS error utterance=" + utteranceId);
-                    mainHandler.post(() -> setState(STATE_PAUSED));
+                    mainHandler.post(() -> {
+                        setState(STATE_PAUSED);
+                        updatePlaybackState(STATE_PAUSED);
+                        updateNotificationFor(STATE_PAUSED);
+                    });
                 }
             });
             ttsReady = true;
@@ -194,7 +408,6 @@ public class TtsPlaybackService extends Service {
 
     private void flushPendingPlay() { play(); }
 
-    /** TTS 스레드 / main 어디서든 호출 가능. tts.speak 자체는 thread-safe. */
     private void speakCurrentPage() {
         if (!ttsReady || tts == null) return;
         int page = queue.getCurrentPage();
@@ -216,22 +429,16 @@ public class TtsPlaybackService extends Service {
         } catch (NumberFormatException e) {
             return;
         }
-        // skip 으로 이미 다른 페이지로 점프했으면 stale onDone — 무시.
         if (spoken != lastSpokenPage) return;
         if (state != STATE_PLAYING) return;
 
         int next = spoken + 1;
         if (next >= queue.pageCount()) {
-            // 책 끝 — 정지하고 서비스 종료.
-            mainHandler.post(() -> {
-                setState(STATE_STOPPED);
-                stopSelf();
-            });
+            mainHandler.post(this::stop);
             return;
         }
-        // 페이지 갱신 — queue 가 main looper 로 listener 를 dispatch 하므로,
-        // queueListener.onPageChanged 가 main 에서 speakCurrentPage 호출.
         queue.setCurrentPage(next);
+        // queue 리스너가 main 에서 speakCurrentPage + 노티 갱신.
     }
 
     private void setState(int newState) {

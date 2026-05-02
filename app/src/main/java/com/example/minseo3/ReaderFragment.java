@@ -1,14 +1,21 @@
 package com.example.minseo3;
 
+import android.Manifest;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
 import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
+
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
+import androidx.core.content.ContextCompat;
 import android.util.TypedValue;
 import android.view.GestureDetector;
 import android.view.LayoutInflater;
@@ -123,12 +130,14 @@ public class ReaderFragment extends Fragment {
         nasSyncManager.push(fileHash, filePath, offset, text.length());
     });
 
-    // ── TTS (Phase 1: 일반 bound service) ─────────────────────────────────
+    // ── TTS (Phase 2: Foreground Service + MediaSession) ─────────────────
     private TtsPlaybackService ttsService;
     private boolean ttsBound = false;
     private boolean ttsPendingPlayAfterBind = false;
+    private boolean notifPermAsked = false;
     private final TtsPlaybackQueue ttsQueue = TtsPlaybackQueue.get();
     private int ttsState = TtsPlaybackService.STATE_IDLE;
+    private ActivityResultLauncher<String> notifPermLauncher;
 
     private final ServiceConnection ttsConn = new ServiceConnection() {
         @Override public void onServiceConnected(ComponentName name, IBinder service) {
@@ -172,6 +181,23 @@ public class ReaderFragment extends Fragment {
 
     private boolean skipConflictResolve = false;
     private boolean conflictResolved = false;
+
+    @Override
+    public void onCreate(@Nullable Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        // ActivityResultLauncher 는 STARTED 전에 등록되어야 함.
+        notifPermLauncher = registerForActivityResult(
+                new ActivityResultContracts.RequestPermission(),
+                granted -> {
+                    if (!granted) {
+                        Toast.makeText(requireContext(),
+                                "잠금화면 컨트롤 없이 음성만 재생됩니다.",
+                                Toast.LENGTH_SHORT).show();
+                    }
+                    // 권한 결과 무관하게 재생 진행 — 노티만 안 보일 뿐.
+                    actuallyPlayTts();
+                });
+    }
 
     @Nullable @Override
     public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container,
@@ -858,15 +884,40 @@ public class ReaderFragment extends Fragment {
 
     private void toggleTts() {
         if (!paginationReady) return;
-        if (!ttsBound || ttsService == null) {
-            // 서비스 아직 바인딩 전이면 (아주 빠른 탭) 큐에 두고 onServiceConnected 에서 처리.
-            ttsPendingPlayAfterBind = true;
+        // pause 분기 — 권한/서비스 시작 모두 불필요.
+        if (ttsBound && ttsService != null && ttsState == TtsPlaybackService.STATE_PLAYING) {
+            ttsService.pause();
             return;
         }
-        if (ttsState == TtsPlaybackService.STATE_PLAYING) {
-            ttsService.pause();
-        } else {
+        // play 분기 — 첫 재생 시 알림 권한 한 번 요청 (API 33+).
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+                && !notifPermAsked
+                && ContextCompat.checkSelfPermission(requireContext(),
+                        Manifest.permission.POST_NOTIFICATIONS)
+                        != PackageManager.PERMISSION_GRANTED) {
+            notifPermAsked = true;
+            notifPermLauncher.launch(Manifest.permission.POST_NOTIFICATIONS);
+            return;  // 콜백에서 actuallyPlayTts 호출.
+        }
+        actuallyPlayTts();
+    }
+
+    /** 권한 체크 통과 후 실제 재생 시작 — startForegroundService + 서비스 play. */
+    private void actuallyPlayTts() {
+        Context appCtx = requireContext().getApplicationContext();
+        try {
+            ContextCompat.startForegroundService(appCtx,
+                    new Intent(appCtx, TtsPlaybackService.class));
+        } catch (Exception e) {
+            // API 31+ 백그라운드 시작 제한 / FGS 시작 차단 등 — bound service 만으로 폴백.
+            Toast.makeText(requireContext(),
+                    "백그라운드 재생을 시작할 수 없어 화면 켜둔 상태로만 재생됩니다.",
+                    Toast.LENGTH_SHORT).show();
+        }
+        if (ttsBound && ttsService != null) {
             ttsService.play();
+        } else {
+            ttsPendingPlayAfterBind = true;
         }
     }
 
@@ -884,8 +935,7 @@ public class ReaderFragment extends Fragment {
     public void onPause() {
         super.onPause();
         requireActivity().getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        // Phase 1 — 화면 안 보이면 음성 정지. Phase 2 에서 foreground service + AudioFocus 로 변경.
-        if (ttsBound && ttsService != null) ttsService.pause();
+        // Phase 2 — 음성은 foreground service 로 계속. 화면만 sleep 허용.
         flushSaveNow();
     }
 
@@ -898,7 +948,8 @@ public class ReaderFragment extends Fragment {
         if (ttsBound) {
             if (ttsService != null) {
                 ttsService.removeStateListener(ttsStateListener);
-                ttsService.stop();
+                // Phase 2: 서비스는 foreground 상태로 살려둠. 사용자 명시 정지(노티 stop) /
+                // 책 끝 도달 / 다른 앱이 AudioFocus 영구 가져감 시 stopSelf.
             }
             requireContext().getApplicationContext().unbindService(ttsConn);
             ttsBound = false;
