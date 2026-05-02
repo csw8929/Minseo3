@@ -181,42 +181,47 @@
         android:textSize="15sp"
         android:layout_marginBottom="8dp" />
 
-    <LinearLayout
+    <com.google.android.material.button.MaterialButtonToggleGroup
+        xmlns:app="http://schemas.android.com/apk/res-auto"
+        android:id="@+id/toggle_tts_rate"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:layout_marginBottom="14dp">
+        android:layout_marginBottom="14dp"
+        app:singleSelection="true"
+        app:selectionRequired="true">
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="느리게"
-            android:textSize="12sp"
-            android:layout_marginEnd="8dp" />
-
-        <SeekBar
-            android:id="@+id/seek_tts_rate"
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_rate_07"
+            style="?attr/materialButtonOutlinedStyle"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_weight="1" />
+            android:layout_weight="1"
+            android:text="0.7x" />
 
-        <TextView
-            android:layout_width="wrap_content"
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_rate_10"
+            style="?attr/materialButtonOutlinedStyle"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:text="빠르게"
-            android:textSize="12sp"
-            android:layout_marginStart="8dp" />
+            android:layout_weight="1"
+            android:text="1.0x" />
 
-        <TextView
-            android:id="@+id/tv_tts_rate"
-            android:layout_width="44dp"
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_rate_12"
+            style="?attr/materialButtonOutlinedStyle"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:text="1.0x"
-            android:textSize="13sp"
-            android:gravity="end"
-            android:layout_marginStart="8dp" />
-    </LinearLayout>
+            android:layout_weight="1"
+            android:text="1.2x" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_rate_15"
+            style="?attr/materialButtonOutlinedStyle"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="1.5x" />
+    </com.google.android.material.button.MaterialButtonToggleGroup>
 
     <com.google.android.material.button.MaterialButton
         android:id="@+id/btn_tts_engine_settings"

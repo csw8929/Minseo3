@@ -16,9 +16,9 @@ import androidx.core.content.ContextCompat;
 import com.google.android.material.bottomsheet.BottomSheetBehavior;
 import com.google.android.material.bottomsheet.BottomSheetDialog;
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment;
+import com.google.android.material.button.MaterialButtonToggleGroup;
 import com.google.android.material.materialswitch.MaterialSwitch;
 
-import java.util.Locale;
 
 public class SettingsBottomSheet extends BottomSheetDialogFragment {
 
@@ -45,10 +45,8 @@ public class SettingsBottomSheet extends BottomSheetDialogFragment {
     private static final String ARG_BOLD = "bold";
     private static final String ARG_TTS_RATE = "tts_rate";
 
-    /** TTS 속도 매핑: progress (0..15) → rate 0.5x..2.0x, 0.1 단위. */
-    private static final int TTS_RATE_STEPS = 15;
-    private static final float TTS_RATE_MIN = 0.5f;
-    private static final float TTS_RATE_STEP = 0.1f;
+    /** TTS 속도 — 4개 고정값. 자유 슬라이더보다 결정 비용 낮음. */
+    private static final float[] TTS_RATES = {0.7f, 1.0f, 1.2f, 1.5f};
 
     // Background themes: {bgColor, textColor}
     private static final int[][] THEMES = {
@@ -72,8 +70,6 @@ public class SettingsBottomSheet extends BottomSheetDialogFragment {
     private Drawable selectedRing;
     /** 글자 크기 슬라이더가 터치 드래그 중인지. onStartTrackingTouch / onStopTrackingTouch 로 토글. */
     private boolean sizeSliderDragging = false;
-    /** TTS 속도 슬라이더 드래그 중인지. 매 notch 마다 재발화 폭주 방지 — release 시점에만 commit. */
-    private boolean rateSliderDragging = false;
 
     public static SettingsBottomSheet newInstance(float sizeSp, int textColor, int bgColor,
                                                   boolean tapSwap, boolean bold, float ttsRate) {
@@ -187,30 +183,22 @@ public class SettingsBottomSheet extends BottomSheetDialogFragment {
             });
         }
 
-        // TTS 속도 — release 시점에만 commit. 드래그 중 매 notch 마다 service 재발화하면 음성이
-        // 0.1x 단계로 끊겨 들림. 비-터치 (a11y SET_PROGRESS) 는 즉시 commit.
-        SeekBar seekRate = v.findViewById(R.id.seek_tts_rate);
-        TextView tvRate = v.findViewById(R.id.tv_tts_rate);
-        if (seekRate != null && tvRate != null) {
-            seekRate.setMax(TTS_RATE_STEPS);
-            int rateIdx = ttsRateToProgress(currentTtsRate);
-            seekRate.setProgress(rateIdx);
-            tvRate.setText(formatRate(currentTtsRate));
-            seekRate.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-                @Override public void onProgressChanged(SeekBar sb, int progress, boolean fromUser) {
-                    currentTtsRate = progressToTtsRate(progress);
-                    tvRate.setText(formatRate(currentTtsRate));
-                    if (rateSliderDragging && fromUser) {
-                        // 드래그 중 — 화면 표시만 갱신.
-                    } else if (listener != null) {
-                        // 비-터치 (a11y) — 즉시 commit.
-                        listener.onTtsRateChanged(currentTtsRate);
+        // TTS 속도 — 4개 고정 토글 버튼. 클릭 즉시 commit (단일 액션이라 폭주 없음).
+        // 저장된 값이 4개 중 하나가 아니면 (옛 슬라이더 시절 prefs) 가장 가까운 값으로 스냅.
+        MaterialButtonToggleGroup toggleRate = v.findViewById(R.id.toggle_tts_rate);
+        if (toggleRate != null) {
+            int snapIdx = nearestRateIndex(currentTtsRate);
+            currentTtsRate = TTS_RATES[snapIdx];
+            int[] btnIds = {R.id.btn_rate_07, R.id.btn_rate_10, R.id.btn_rate_12, R.id.btn_rate_15};
+            toggleRate.check(btnIds[snapIdx]);
+            toggleRate.addOnButtonCheckedListener((group, checkedId, isChecked) -> {
+                if (!isChecked) return;
+                for (int i = 0; i < btnIds.length; i++) {
+                    if (btnIds[i] == checkedId) {
+                        currentTtsRate = TTS_RATES[i];
+                        if (listener != null) listener.onTtsRateChanged(currentTtsRate);
+                        break;
                     }
-                }
-                @Override public void onStartTrackingTouch(SeekBar sb) { rateSliderDragging = true; }
-                @Override public void onStopTrackingTouch(SeekBar sb) {
-                    rateSliderDragging = false;
-                    if (listener != null) listener.onTtsRateChanged(currentTtsRate);
                 }
             });
         }
@@ -226,21 +214,14 @@ public class SettingsBottomSheet extends BottomSheetDialogFragment {
         return v;
     }
 
-    private static int ttsRateToProgress(float rate) {
-        int idx = Math.round((rate - TTS_RATE_MIN) / TTS_RATE_STEP);
-        if (idx < 0) idx = 0;
-        if (idx > TTS_RATE_STEPS) idx = TTS_RATE_STEPS;
-        return idx;
-    }
-
-    private static float progressToTtsRate(int progress) {
-        float r = TTS_RATE_MIN + progress * TTS_RATE_STEP;
-        // float 누적 오차 방어 — 0.1 단위로 반올림.
-        return Math.round(r * 10f) / 10f;
-    }
-
-    private static String formatRate(float rate) {
-        return String.format(Locale.US, "%.1fx", rate);
+    private static int nearestRateIndex(float rate) {
+        int best = 0;
+        float bestDiff = Float.MAX_VALUE;
+        for (int i = 0; i < TTS_RATES.length; i++) {
+            float d = Math.abs(TTS_RATES[i] - rate);
+            if (d < bestDiff) { bestDiff = d; best = i; }
+        }
+        return best;
     }
 
     private void updateSelectedThemeIndicator() {
